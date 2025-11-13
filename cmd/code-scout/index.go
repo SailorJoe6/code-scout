@@ -25,14 +25,33 @@ and store them in a local LanceDB vector database (.code-scout/).`,
 			return fmt.Errorf("failed to get current directory: %w", err)
 		}
 
-		// Scan for Python files
+		// Scan for code files
 		s := scanner.New(cwd)
-		files, err := s.ScanPythonFiles()
+		files, err := s.ScanCodeFiles()
 		if err != nil {
 			return fmt.Errorf("failed to scan files: %w", err)
 		}
 
-		fmt.Printf("Found %d Python files\n", len(files))
+		// Count files by language
+		langCounts := make(map[string]int)
+		for _, f := range files {
+			langCounts[f.Language]++
+		}
+
+		fmt.Printf("Found %d code files", len(files))
+		if len(langCounts) > 0 {
+			fmt.Print(" (")
+			first := true
+			for lang, count := range langCounts {
+				if !first {
+					fmt.Print(", ")
+				}
+				fmt.Printf("%d %s", count, lang)
+				first = false
+			}
+			fmt.Print(")")
+		}
+		fmt.Println()
 
 		// Chunk files
 		ch := chunker.New()

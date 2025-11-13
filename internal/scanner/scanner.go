@@ -22,8 +22,14 @@ func New(rootDir string) *Scanner {
 	return &Scanner{rootDir: rootDir}
 }
 
-// ScanPythonFiles recursively scans for Python files
-func (s *Scanner) ScanPythonFiles() ([]FileInfo, error) {
+// languageExtensions maps file extensions to language names
+var languageExtensions = map[string]string{
+	".py": "python",
+	".go": "go",
+}
+
+// ScanCodeFiles recursively scans for code files (Python, Go, etc.)
+func (s *Scanner) ScanCodeFiles() ([]FileInfo, error) {
 	var files []FileInfo
 
 	err := filepath.Walk(s.rootDir, func(path string, info os.FileInfo, err error) error {
@@ -41,12 +47,15 @@ func (s *Scanner) ScanPythonFiles() ([]FileInfo, error) {
 			return filepath.SkipDir
 		}
 
-		// Check for Python files
-		if !info.IsDir() && strings.HasSuffix(info.Name(), ".py") {
-			files = append(files, FileInfo{
-				Path:     path,
-				Language: "python",
-			})
+		// Check for supported code files
+		if !info.IsDir() {
+			ext := filepath.Ext(info.Name())
+			if lang, ok := languageExtensions[ext]; ok {
+				files = append(files, FileInfo{
+					Path:     path,
+					Language: lang,
+				})
+			}
 		}
 
 		return nil
@@ -57,4 +66,9 @@ func (s *Scanner) ScanPythonFiles() ([]FileInfo, error) {
 	}
 
 	return files, nil
+}
+
+// ScanPythonFiles recursively scans for Python files (deprecated: use ScanCodeFiles)
+func (s *Scanner) ScanPythonFiles() ([]FileInfo, error) {
+	return s.ScanCodeFiles()
 }

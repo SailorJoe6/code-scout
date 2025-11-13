@@ -44,6 +44,23 @@ The script will:
 - Set the required CGO flags for your platform
 - Build the `code-scout` binary
 
+**Note:** After building, you may need to set the library path for runtime:
+
+**macOS:**
+```bash
+export DYLD_LIBRARY_PATH=$(pwd)/lib/darwin_arm64:$DYLD_LIBRARY_PATH
+```
+
+**Linux:**
+```bash
+export LD_LIBRARY_PATH=$(pwd)/lib/linux_amd64:$LD_LIBRARY_PATH
+```
+
+Then run the binary:
+```bash
+./code-scout --help
+```
+
 ### Development Workflow
 
 #### Rebuilding After Changes
@@ -89,17 +106,26 @@ fatal error: lancedb.h: No such file or directory
 
 #### Libraries not found at runtime
 
+**Symptom:**
+```
+dyld: Library not loaded: liblancedb_go.dylib
+```
+
+**Solution:** Set the library path environment variable before running:
+
 **macOS:**
 ```bash
-# Add library path to runtime
 export DYLD_LIBRARY_PATH=$(pwd)/lib/darwin_arm64:$DYLD_LIBRARY_PATH
+./code-scout index .
 ```
 
 **Linux:**
 ```bash
-# Add library path to runtime
 export LD_LIBRARY_PATH=$(pwd)/lib/linux_amd64:$LD_LIBRARY_PATH
+./code-scout index .
 ```
+
+Add this to your shell profile (`.bashrc`, `.zshrc`, etc.) to make it permanent when working on this project.
 
 ### Project Structure
 
