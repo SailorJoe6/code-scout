@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(bd ready:*)",
+      "Bash(git add:*)",
+      "Bash(git commit -m \"$(cat <<''EOF''\nInitial commit: Project setup with beads issue tracking and documentation\n\nSet up code_scout repository with:\n- beads (bd) issue tracking system in .beads/\n- Claude Code configuration in .claude/\n- Project documentation (README.md, CLAUDE.md, AGENTS.md)\n- Repository guidelines for AI-assisted development\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-Authored-By: Claude <noreply@anthropic.com>\nEOF\n)\")"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}
