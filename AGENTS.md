@@ -1,3 +1,13 @@
+## Before You Start Developing
+
+**IMPORTANT**: Before making any code changes, review the [Developer Guide](DEVELOPERS.md) for:
+- Build requirements and setup instructions
+- Required environment variables for CGO/LanceDB
+- Common build issues and solutions
+- Project structure overview
+
+**Quick check**: If you need to build the project, you MUST have the LanceDB native libraries downloaded and CGO environment variables configured. See DEVELOPERS.md for details.
+
 ## Issue Tracking with beads (bd)
 
 **IMPORTANT**: This project uses **beads (bd)** for ALL issue tracking. Do NOT use markdown TODOs, task lists, or other tracking methods.
@@ -171,6 +181,7 @@ docs/planning/
 
 ### Important Rules
 
+- ✅ **Review DEVELOPERS.md** before building or modifying code
 - ✅ Use bd for ALL task tracking
 - ✅ Always use `--json` flag for programmatic use
 - ✅ Link discovered work with `discovered-from` dependencies
@@ -181,4 +192,4 @@ docs/planning/
 - ❌ Do NOT duplicate tracking systems
 - ❌ Do NOT clutter repo root with planning documents
 
-For more details, see README.md and QUICKSTART.md.
+For more details, see README.md, DEVELOPERS.md, and QUICKSTART.md.
