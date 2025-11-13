@@ -1,0 +1,9 @@
+# Custom Modelfile for nomic-embed-code
+# Purpose: Persistent context window configuration to prevent silent truncation
+
+FROM manutic/nomic-embed-code:latest
+
+# Set context window to 32768 tokens (model's native capacity)
+# This prevents Ollama's default 2048 token limit from silently discarding input
+# nomic-embed-code supports up to 32K context - ideal for large code files
+PARAMETER num_ctx 32768

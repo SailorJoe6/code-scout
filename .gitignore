@@ -1,0 +1,32 @@
+# Binaries (only in root directory)
+/code-scout
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Test binaries
+*.test
+
+# Coverage
+*.out
+
+# Go workspace file
+go.work
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Code Scout vector databases (per-project, local only)
+.code-scout/
+
+# AI planning documents (ephemeral)
+docs/planning/
+
+# LanceDB native libraries (downloaded via script)
+lib/
+include/
