@@ -49,6 +49,61 @@ bd close bd-42 --reason "Completed" --json
 - `3` - Low (polish, optimization)
 - `4` - Backlog (future ideas)
 
+## Elephant Carpaccio Development
+
+**IMPORTANT**: This project follows the **Elephant Carpaccio** approach to development. Always deliver value in thin, vertical slices.
+
+### Planning Principle: Vertical Slices
+
+When planning work, **always break down features into small vertical slices** that deliver end-to-end value:
+
+✅ **Good (Vertical Slices):**
+- Slice 1: Index one Python file and search it (complete flow, immediate value)
+- Slice 2: Add semantic chunking (better results, still works end-to-end)
+- Slice 3: Add documentation support (more features, complete system)
+
+❌ **Bad (Horizontal Layers):**
+- Task 1: Build file scanner (no value until everything else is done)
+- Task 2: Build chunker (still no value)
+- Task 3: Build embeddings client (still no value)
+- Task 4: Build storage (finally works, but took 4 tasks)
+
+**Each slice must:**
+- Work end-to-end (user can actually use it)
+- Deliver incremental value (better than the previous slice)
+- Be independently testable
+- Take hours or days, not weeks
+
+**Think:** "What's the smallest thing I can build that actually works?"
+
+### Implementation Principle: Commit Per Slice
+
+**Always commit after completing each vertical slice:**
+
+```bash
+# After Slice 1 is working end-to-end
+git add .
+git commit -m "Implement Slice 1: Basic indexing works"
+
+# After Slice 2 is working end-to-end
+git add .
+git commit -m "Implement Slice 2: Add semantic chunking"
+
+# And so on...
+```
+
+**Benefits:**
+- ✅ Clean git history showing incremental progress
+- ✅ Easy to revert to last working state
+- ✅ Each commit is a functioning system
+- ✅ Beads issues stay in sync with code (commit `.beads/issues.jsonl` together)
+- ✅ Clear milestones for reviewing progress
+
+**Never commit:**
+- ❌ Half-finished features that don't work
+- ❌ Multiple slices bundled together
+- ❌ Broken/untested code
+
 ### Workflow for AI Agents
 
 1. **Check ready work**: `bd ready` shows unblocked issues
