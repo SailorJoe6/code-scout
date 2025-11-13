@@ -167,6 +167,20 @@ func (s *LanceDBStore) StoreChunks(chunks []chunker.Chunk, embeddings [][]float6
 	return nil
 }
 
+// OpenTable opens an existing table for searching
+func (s *LanceDBStore) OpenTable() error {
+	ctx := context.Background()
+
+	// Open existing table
+	var err error
+	s.table, err = s.conn.OpenTable(ctx, DefaultTableName)
+	if err != nil {
+		return fmt.Errorf("failed to open table: %w", err)
+	}
+
+	return nil
+}
+
 // Search performs vector similarity search
 func (s *LanceDBStore) Search(queryVector []float64, limit int) ([]map[string]interface{}, error) {
 	if s.table == nil {
