@@ -17,7 +17,11 @@
       "WebFetch(domain:github.com)",
       "Bash(curl:*)",
       "Bash(docs/reference_material/lancedb-vector-search-example.go)",
-      "Bash(\"lancedb-basic-crud.go\")"
+      "Bash(\"lancedb-basic-crud.go\")",
+      "Bash(bd show:*)",
+      "Bash(cat:*)",
+      "Bash(./build.sh:*)",
+      "Bash(./clean-db.sh:*)"
     ],
     "deny": [],
     "ask": []
