@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"sync"
 	"time"
 
 	"github.com/jlanders/code-scout/internal/chunker"
@@ -10,6 +11,10 @@ import (
 	"github.com/jlanders/code-scout/internal/scanner"
 	"github.com/jlanders/code-scout/internal/storage"
 	"github.com/spf13/cobra"
+)
+
+var (
+	workers int
 )
 
 var indexCmd = &cobra.Command{
@@ -112,7 +117,7 @@ and store them in a local LanceDB vector database (.code-scout/).`,
 		}
 		fmt.Println()
 
-		// Chunk files
+		// Chunk files that need indexing
 		ch := chunker.New()
 		var allChunks []chunker.Chunk
 
@@ -137,15 +142,68 @@ and store them in a local LanceDB vector database (.code-scout/).`,
 			chunkTexts[i] = chunk.Code
 		}
 
-		// Generate embeddings (collect them as we go)
+		// Generate embeddings concurrently with worker pool
+		numWorkers := workers
+		if numWorkers <= 0 {
+			numWorkers = 5 // Default to 5 workers for better GPU balance
+		}
+		fmt.Printf("Using %d concurrent workers for embedding generation\n", numWorkers)
 		allEmbeddings := make([][]float64, len(chunkTexts))
+
+		type job struct {
+			index int
+			text  string
+		}
+
+		type result struct {
+			index     int
+			embedding []float64
+			err       error
+		}
+
+		jobs := make(chan job, len(chunkTexts))
+		results := make(chan result, len(chunkTexts))
+
+		// Start worker pool
+		var wg sync.WaitGroup
+		for w := 0; w < numWorkers; w++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				for j := range jobs {
+					embedding, err := embedClient.Embed(j.text)
+					results <- result{
+						index:     j.index,
+						embedding: embedding,
+						err:       err,
+					}
+				}
+			}()
+		}
+
+		// Send jobs
 		for i, text := range chunkTexts {
-			embedding, err := embedClient.Embed(text)
-			if err != nil {
-				return fmt.Errorf("failed to generate embedding for chunk %d: %w", i, err)
+			jobs <- job{index: i, text: text}
+		}
+		close(jobs)
+
+		// Close results channel when all workers done
+		go func() {
+			wg.Wait()
+			close(results)
+		}()
+
+		// Collect results
+		completed := 0
+		for r := range results {
+			if r.err != nil {
+				return fmt.Errorf("failed to generate embedding for chunk %d: %w", r.index, r.err)
 			}
-			allEmbeddings[i] = embedding
-			fmt.Printf("  Generated embedding %d/%d (dim: %d)\n", i+1, len(chunkTexts), len(embedding))
+			allEmbeddings[r.index] = r.embedding
+			completed++
+			if completed == 1 || completed%50 == 0 || completed == len(chunkTexts) {
+				fmt.Printf("  Generated %d/%d embeddings (dim: %d)\n", completed, len(chunkTexts), len(r.embedding))
+			}
 		}
 
 		fmt.Println("Embeddings generated successfully!")
@@ -178,4 +236,5 @@ and store them in a local LanceDB vector database (.code-scout/).`,
 
 func init() {
 	rootCmd.AddCommand(indexCmd)
+indexCmd.Flags().IntVarP(&workers, "workers", "w", 5, "Number of concurrent workers for embedding generation (default: 5)")
 }
