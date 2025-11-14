@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/apache/arrow/go/v17/arrow"
 	"github.com/apache/arrow/go/v17/arrow/array"
@@ -53,15 +54,12 @@ func NewLanceDBStore(rootDir string) (*LanceDBStore, error) {
 	}, nil
 }
 
-// StoreChunks stores chunks with their embeddings
-func (s *LanceDBStore) StoreChunks(chunks []chunker.Chunk, embeddings [][]float64) error {
-	if len(chunks) != len(embeddings) {
-		return fmt.Errorf("chunks and embeddings length mismatch: %d vs %d", len(chunks), len(embeddings))
+// getOrCreateSchema returns the schema, creating it if needed
+func (s *LanceDBStore) getOrCreateSchema() (*arrow.Schema, error) {
+	if s.schema != nil {
+		return s.schema, nil
 	}
 
-	ctx := context.Background()
-
-	// Define Arrow schema
 	fields := []arrow.Field{
 		{Name: "chunk_id", Type: arrow.BinaryTypes.String, Nullable: false},
 		{Name: "file_path", Type: arrow.BinaryTypes.String, Nullable: false},
@@ -72,18 +70,104 @@ func (s *LanceDBStore) StoreChunks(chunks []chunker.Chunk, embeddings [][]float6
 		{Name: "vector", Type: arrow.FixedSizeListOf(VectorDimension, arrow.PrimitiveTypes.Float32), Nullable: false},
 	}
 	s.schema = arrow.NewSchema(fields, nil)
+	return s.schema, nil
+}
 
-	// Convert to LanceDB schema
-	lanceSchema, err := lancedb.NewSchema(s.schema)
+// ensureTable ensures the table exists, creating it if needed
+func (s *LanceDBStore) ensureTable() error {
+	if s.table != nil {
+		return nil
+	}
+
+	ctx := context.Background()
+
+	// Try to open existing table first
+	var err error
+	s.table, err = s.conn.OpenTable(ctx, DefaultTableName)
+	if err == nil {
+		return nil
+	}
+
+	// Table doesn't exist, create it
+	schema, err := s.getOrCreateSchema()
+	if err != nil {
+		return fmt.Errorf("failed to get schema: %w", err)
+	}
+
+	lanceSchema, err := lancedb.NewSchema(schema)
 	if err != nil {
 		return fmt.Errorf("failed to create Lance schema: %w", err)
 	}
 
-	// Create table
 	s.table, err = s.conn.CreateTable(ctx, DefaultTableName, lanceSchema)
 	if err != nil {
 		return fmt.Errorf("failed to create table: %w", err)
 	}
+
+	return nil
+}
+
+// DeleteChunksByFilePath deletes all chunks for the given file paths
+func (s *LanceDBStore) DeleteChunksByFilePath(filePaths []string) error {
+	if len(filePaths) == 0 {
+		return nil
+	}
+
+	// Try to open table - if it doesn't exist, nothing to delete
+	ctx := context.Background()
+	table, err := s.conn.OpenTable(ctx, DefaultTableName)
+	if err != nil {
+		// Table doesn't exist yet, nothing to delete
+		return nil
+	}
+	defer table.Close()
+
+	// Build filter expression: file_path = 'path1' OR file_path = 'path2' OR ...
+	// Escape single quotes in file paths
+	filterParts := make([]string, 0, len(filePaths))
+	for _, path := range filePaths {
+		// Escape single quotes by doubling them
+		escaped := ""
+		for _, r := range path {
+			if r == '\'' {
+				escaped += "''"
+			} else {
+				escaped += string(r)
+			}
+		}
+		filterParts = append(filterParts, fmt.Sprintf("file_path = '%s'", escaped))
+	}
+
+	filter := "(" + strings.Join(filterParts, " OR ") + ")"
+
+	if err := table.Delete(ctx, filter); err != nil {
+		return fmt.Errorf("failed to delete chunks: %w", err)
+	}
+
+	return nil
+}
+
+// StoreChunks stores chunks with their embeddings (incremental - adds to existing table)
+func (s *LanceDBStore) StoreChunks(chunks []chunker.Chunk, embeddings [][]float64) error {
+	if len(chunks) != len(embeddings) {
+		return fmt.Errorf("chunks and embeddings length mismatch: %d vs %d", len(chunks), len(embeddings))
+	}
+
+	if len(chunks) == 0 {
+		return nil // Nothing to store
+	}
+
+	if err := s.ensureTable(); err != nil {
+		return err
+	}
+
+	schema, err := s.getOrCreateSchema()
+	if err != nil {
+		return fmt.Errorf("failed to get schema: %w", err)
+	}
+	_ = schema // Schema is used implicitly via s.schema
+
+	ctx := context.Background()
 
 	// Build Arrow arrays
 	pool := memory.NewGoAllocator()

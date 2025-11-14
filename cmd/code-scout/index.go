@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"time"
 
 	"github.com/jlanders/code-scout/internal/chunker"
 	"github.com/jlanders/code-scout/internal/embeddings"
@@ -25,20 +26,78 @@ and store them in a local LanceDB vector database (.code-scout/).`,
 			return fmt.Errorf("failed to get current directory: %w", err)
 		}
 
+		// Initialize storage and load metadata
+		store, err := storage.NewLanceDBStore(cwd)
+		if err != nil {
+			return fmt.Errorf("failed to create LanceDB store: %w", err)
+		}
+		defer store.Close()
+
+		metadata, err := store.LoadMetadata()
+		if err != nil {
+			return fmt.Errorf("failed to load metadata: %w", err)
+		}
+
 		// Scan for code files
 		s := scanner.New(cwd)
-		files, err := s.ScanCodeFiles()
+		allFiles, err := s.ScanCodeFiles()
 		if err != nil {
 			return fmt.Errorf("failed to scan files: %w", err)
 		}
 
+		// Determine which files need indexing
+		var filesToIndex []scanner.FileInfo
+		var filesToDelete []string
+		now := time.Now()
+
+		for _, f := range allFiles {
+			lastModTime, exists := metadata.FileModTimes[f.Path]
+			if !exists || f.ModTime.After(lastModTime) {
+				// File is new or has been modified
+				filesToIndex = append(filesToIndex, f)
+				if exists {
+					// File was previously indexed, mark for deletion
+					filesToDelete = append(filesToDelete, f.Path)
+				}
+			}
+		}
+
+		// Check for deleted files (files in metadata but not in scan)
+		for filePath := range metadata.FileModTimes {
+			found := false
+			for _, f := range allFiles {
+				if f.Path == filePath {
+					found = true
+					break
+				}
+			}
+			if !found {
+				// File was deleted, mark for deletion
+				filesToDelete = append(filesToDelete, filePath)
+			}
+		}
+
+		// Delete old chunks for changed/deleted files
+		if len(filesToDelete) > 0 {
+			fmt.Printf("Removing %d changed/deleted file(s) from index...\n", len(filesToDelete))
+			if err := store.DeleteChunksByFilePath(filesToDelete); err != nil {
+				return fmt.Errorf("failed to delete old chunks: %w", err)
+			}
+		}
+
+		// If nothing to index, we're done
+		if len(filesToIndex) == 0 {
+			fmt.Printf("✓ All files up to date. Indexing complete!\n")
+			return nil
+		}
+
 		// Count files by language
 		langCounts := make(map[string]int)
-		for _, f := range files {
+		for _, f := range filesToIndex {
 			langCounts[f.Language]++
 		}
 
-		fmt.Printf("Found %d code files", len(files))
+		fmt.Printf("Indexing %d file(s)", len(filesToIndex))
 		if len(langCounts) > 0 {
 			fmt.Print(" (")
 			first := true
@@ -57,7 +116,7 @@ and store them in a local LanceDB vector database (.code-scout/).`,
 		ch := chunker.New()
 		var allChunks []chunker.Chunk
 
-		for _, f := range files {
+		for _, f := range filesToIndex {
 			chunks, err := ch.ChunkFile(f.Path, f.Language)
 			if err != nil {
 				return fmt.Errorf("failed to chunk file %s: %w", f.Path, err)
@@ -93,14 +152,22 @@ and store them in a local LanceDB vector database (.code-scout/).`,
 
 		// Store chunks and embeddings in LanceDB
 		fmt.Println("Storing in vector database...")
-		store, err := storage.NewLanceDBStore(cwd)
-		if err != nil {
-			return fmt.Errorf("failed to create LanceDB store: %w", err)
-		}
-		defer store.Close()
-
 		if err := store.StoreChunks(allChunks, allEmbeddings); err != nil {
 			return fmt.Errorf("failed to store chunks: %w", err)
+		}
+
+		// Update metadata with new file modification times
+		metadata.LastIndexTime = now
+		for _, f := range filesToIndex {
+			metadata.FileModTimes[f.Path] = f.ModTime
+		}
+		// Remove deleted files from metadata
+		for _, filePath := range filesToDelete {
+			delete(metadata.FileModTimes, filePath)
+		}
+
+		if err := store.SaveMetadata(metadata); err != nil {
+			return fmt.Errorf("failed to save metadata: %w", err)
 		}
 
 		fmt.Println("✓ Indexing complete!")

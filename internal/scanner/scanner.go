@@ -4,12 +4,14 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 // FileInfo represents a discovered file
 type FileInfo struct {
 	Path     string
 	Language string
+	ModTime  time.Time
 }
 
 // Scanner scans directories for code files
@@ -54,6 +56,7 @@ func (s *Scanner) ScanCodeFiles() ([]FileInfo, error) {
 				files = append(files, FileInfo{
 					Path:     path,
 					Language: lang,
+					ModTime:  info.ModTime(),
 				})
 			}
 		}
