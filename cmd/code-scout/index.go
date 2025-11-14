@@ -145,7 +145,7 @@ and store them in a local LanceDB vector database (.code-scout/).`,
 		// Generate embeddings concurrently with worker pool
 		numWorkers := workers
 		if numWorkers <= 0 {
-			numWorkers = 5 // Default to 5 workers for better GPU balance
+			numWorkers = 10 // Default to 10 workers for faster throughput
 		}
 		fmt.Printf("Using %d concurrent workers for embedding generation\n", numWorkers)
 		allEmbeddings := make([][]float64, len(chunkTexts))
@@ -236,5 +236,5 @@ and store them in a local LanceDB vector database (.code-scout/).`,
 
 func init() {
 	rootCmd.AddCommand(indexCmd)
-indexCmd.Flags().IntVarP(&workers, "workers", "w", 5, "Number of concurrent workers for embedding generation (default: 5)")
+indexCmd.Flags().IntVarP(&workers, "workers", "w", 10, "Number of concurrent workers for embedding generation (default: 10)")
 }
