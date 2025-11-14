@@ -131,6 +131,18 @@ bd automatically syncs with git:
 - Imports from JSONL when newer (e.g., after `git pull`)
 - No manual export/import needed!
 
+### ⚠️ CRITICAL: NEVER Edit JSONL Files Directly Unless to resolve a conflict. 
+
+**NEVER, EVER read, edit, or update the `.beads/issues.jsonl` file directly to manage beads issues**
+
+- **The database is the source of truth** - The JSONL file is a git-friendly export, not the primary storage
+- **Direct edits will be overwritten** - The beads database will overwrite your changes
+- **Use the beads MCP server** - Prefer `mcp__beads__*` functions if available
+- **Use the CLI** - Use `bd` commands as a fallback
+- **The JSONL file is read-only from your perspective** - Only beads itself should modify it
+
+Any attempt to directly edit `.beads/issues.jsonl` will result in data loss and corruption.  The only time this rule can be relaxed is in the case of a merge conflict, in which case you are allowed to take the best course of action to resolve the conflict.  
+
 ### MCP Server (Recommended)
 
 If using Claude or MCP-compatible clients, install the beads MCP server:
