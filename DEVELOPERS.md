@@ -16,7 +16,7 @@ This project uses **lancedb-go**, which requires native C libraries and special 
 
 #### 1. Download Native Libraries
 
-Run the artifact downloader script to get platform-specific libraries:
+Run the artifact downloader script to get platform-specific libraries (if not already present):
 
 ```bash
 curl -sSL https://raw.githubusercontent.com/lancedb/lancedb-go/main/scripts/download-artifacts.sh | bash
@@ -31,35 +31,33 @@ This creates:
 - `lib/{platform}_{arch}/` - Platform-specific native libraries
 - `include/lancedb.h` - Required C header file
 
-#### 2. Build the Project
+#### 2. Build the Project (per-platform bundles)
 
-Use the provided build script (automatically detects your platform):
+The build now outputs a self-contained bundle for each platform under `dist/code-scout-<os>_<arch>/` and also produces a matching `code-scout-<os>_<arch>.tar.gz` archive for distribution.
 
 ```bash
+# Build every platform that has native libs under ./lib/
 ./build.sh
+
+# Or limit to specific targets
+TARGETS="darwin_arm64 linux_amd64" ./build.sh
 ```
 
-The script will:
-- Detect your OS and architecture
-- Set the required CGO flags for your platform
-- Build the `code-scout` binary
+For each target, the script:
+- Sets `GOOS`, `GOARCH`, and the matching LanceDB CGO flags
+- Links in an rpath that points to the bundled `lib/` directory
+- Copies the correct native libraries next to the binary
+- Tars everything into `dist/code-scout-<os>_<arch>.tar.gz`
+- Renames the compiled binary to `code-scout.bin` and adds a platform-specific `code-scout` wrapper that sets the right library path before delegating to the binary
 
-**Note:** After building, you may need to set the library path for runtime:
+Pick the archive that matches your host (Apple Silicon → `darwin_arm64`, Intel macOS → `darwin_amd64`, Linux x86_64 → `linux_amd64`), extract it, and run the binary:
 
-**macOS:**
 ```bash
-export DYLD_LIBRARY_PATH=$(pwd)/lib/darwin_arm64:$DYLD_LIBRARY_PATH
+tar -xzf dist/code-scout-darwin_arm64.tar.gz
+./code-scout-darwin_arm64/code-scout --help
 ```
 
-**Linux:**
-```bash
-export LD_LIBRARY_PATH=$(pwd)/lib/linux_amd64:$LD_LIBRARY_PATH
-```
-
-Then run the binary:
-```bash
-./code-scout --help
-```
+Always launch the wrapper (`code-scout`), which ensures `DYLD_LIBRARY_PATH`/`LD_LIBRARY_PATH` points at the bundled `lib/` directory even inside sandboxed shells. You only need `code-scout.bin` if you are debugging without the wrapper, in which case export the library path manually.
 
 ### Development Workflow
 
@@ -111,21 +109,7 @@ fatal error: lancedb.h: No such file or directory
 dyld: Library not loaded: liblancedb_go.dylib
 ```
 
-**Solution:** Set the library path environment variable before running:
-
-**macOS:**
-```bash
-export DYLD_LIBRARY_PATH=$(pwd)/lib/darwin_arm64:$DYLD_LIBRARY_PATH
-./code-scout index .
-```
-
-**Linux:**
-```bash
-export LD_LIBRARY_PATH=$(pwd)/lib/linux_amd64:$LD_LIBRARY_PATH
-./code-scout index .
-```
-
-Add this to your shell profile (`.bashrc`, `.zshrc`, etc.) to make it permanent when working on this project.
+**Solution:** Run the packaged wrapper from the extracted bundle (for example `code-scout-darwin_arm64/code-scout`), which exports the correct library path before chaining to `code-scout.bin`. If you run `code-scout.bin` directly, `go run`, or another ad-hoc build, you must export `DYLD_LIBRARY_PATH`/`LD_LIBRARY_PATH` manually as before.
 
 ### Project Structure
 

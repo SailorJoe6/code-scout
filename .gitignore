@@ -30,3 +30,6 @@ docs/planning/
 # LanceDB native libraries (downloaded via script)
 lib/
 include/
+
+# Build artifacts
+dist/
