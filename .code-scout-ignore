@@ -1,0 +1,12 @@
+# code-scout ignore patterns
+# Lines starting with # are comments
+# Patterns can be:
+# - Simple strings (matches if path contains the string)
+# - Glob patterns (e.g., *.tmp, test_*)
+# - Directory names (e.g., examples, node_modules)
+
+# Exclude examples directory
+examples/
+
+# Exclude test data
+test_data/
