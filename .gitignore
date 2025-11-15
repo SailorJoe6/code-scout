@@ -24,9 +24,6 @@ go.work
 # Code Scout vector databases (per-project, local only)
 .code-scout/
 
-# AI planning documents (ephemeral)
-docs/planning/
-
 # LanceDB native libraries (downloaded via script)
 lib/
 include/

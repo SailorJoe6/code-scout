@@ -50,14 +50,33 @@ For each target, the script:
 - Tars everything into `dist/code-scout-<os>_<arch>.tar.gz`
 - Renames the compiled binary to `code-scout.bin` and adds a platform-specific `code-scout` wrapper that sets the right library path before delegating to the binary
 
-Pick the archive that matches your host (Apple Silicon → `darwin_arm64`, Intel macOS → `darwin_amd64`, Linux x86_64 → `linux_amd64`), extract it, and run the binary:
+#### Running After Build
+
+**For local development** (after `./build.sh`):
+
+The build script creates ready-to-run bundles in `dist/`. Run directly without extracting:
+
+```bash
+# On Apple Silicon
+./dist/code-scout-darwin_arm64/code-scout --help
+
+# On Intel macOS
+./dist/code-scout-darwin_amd64/code-scout --help
+
+# On Linux x86_64
+./dist/code-scout-linux_amd64/code-scout --help
+```
+
+**For distribution** (sharing builds with others):
+
+The `.tar.gz` archives are self-contained and can be extracted anywhere:
 
 ```bash
 tar -xzf dist/code-scout-darwin_arm64.tar.gz
 ./code-scout-darwin_arm64/code-scout --help
 ```
 
-Always launch the wrapper (`code-scout`), which ensures `DYLD_LIBRARY_PATH`/`LD_LIBRARY_PATH` points at the bundled `lib/` directory even inside sandboxed shells. You only need `code-scout.bin` if you are debugging without the wrapper, in which case export the library path manually.
+**Important:** Always launch the wrapper (`code-scout`), which ensures `DYLD_LIBRARY_PATH`/`LD_LIBRARY_PATH` points at the bundled `lib/` directory even inside sandboxed shells. You only need `code-scout.bin` if you are debugging without the wrapper, in which case export the library path manually.
 
 ### Development Workflow
 
