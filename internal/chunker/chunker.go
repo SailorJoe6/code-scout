@@ -11,12 +11,15 @@ import (
 
 // Chunk represents a code chunk with metadata
 type Chunk struct {
-	ID        string `json:"chunk_id"`
-	FilePath  string `json:"file_path"`
-	LineStart int    `json:"line_start"`
-	LineEnd   int    `json:"line_end"`
-	Language  string `json:"language"`
-	Code      string `json:"code"`
+	ID        string            `json:"chunk_id"`
+	FilePath  string            `json:"file_path"`
+	LineStart int               `json:"line_start"`
+	LineEnd   int               `json:"line_end"`
+	Language  string            `json:"language"`
+	Code      string            `json:"code"`
+	ChunkType string            `json:"chunk_type,omitempty"`     // function, method, struct, interface, etc.
+	Name      string            `json:"name,omitempty"`           // Name of the function/type
+	Metadata  map[string]string `json:"metadata,omitempty"`       // Additional metadata (imports, package, etc.)
 }
 
 // Chunker chunks source code files

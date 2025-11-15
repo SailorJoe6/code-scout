@@ -15,8 +15,12 @@ require (
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/klauspost/compress v1.17.9 // indirect
 	github.com/klauspost/cpuid/v2 v2.2.8 // indirect
+	github.com/mattn/go-pointer v0.0.1 // indirect
 	github.com/pierrec/lz4/v4 v4.1.21 // indirect
 	github.com/spf13/pflag v1.0.9 // indirect
+	github.com/tree-sitter/go-tree-sitter v0.25.0 // indirect
+	github.com/tree-sitter/tree-sitter-go v0.25.0 // indirect
+	github.com/tree-sitter/tree-sitter-python v0.25.0 // indirect
 	github.com/zeebo/xxh3 v1.0.2 // indirect
 	golang.org/x/exp v0.0.0-20240222234643-814bf88cf225 // indirect
 	golang.org/x/mod v0.18.0 // indirect
