@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"sort"
 
 	"github.com/jlanders/code-scout/internal/embeddings"
 	"github.com/jlanders/code-scout/internal/storage"
@@ -55,13 +56,17 @@ Returns relevant code chunks with file paths, line numbers, and relevance scores
 			return fmt.Errorf("failed to search: %w", err)
 		}
 
+		// Format and deduplicate results
+		formatted := formatResults(results)
+		deduplicated := deduplicateResults(formatted)
+
 		// Format output
 		output := map[string]interface{}{
 			"query":         query,
 			"mode":          "code",
 			"total_results": len(results),
-			"returned":      len(results),
-			"results":       formatResults(results),
+			"returned":      len(deduplicated),
+			"results":       deduplicated,
 		}
 
 		if jsonOutput {
@@ -72,8 +77,8 @@ Returns relevant code chunks with file paths, line numbers, and relevance scores
 			fmt.Println(string(jsonOutput))
 		} else {
 			// Human-readable output
-			fmt.Printf("Found %d results for: %s\n\n", len(results), query)
-			for i, result := range formatResults(results) {
+			fmt.Printf("Found %d unique results (from %d total) for: %s\n\n", len(deduplicated), len(results), query)
+			for i, result := range deduplicated {
 				fmt.Printf("%d. %s:%d-%d (score: %.4f)\n", i+1, result.FilePath, result.LineStart, result.LineEnd, result.Score)
 				fmt.Printf("   Language: %s\n", result.Language)
 				// Show first 100 chars of code
@@ -113,6 +118,50 @@ func formatResults(results []map[string]interface{}) []SearchResult {
 		}
 	}
 	return formatted
+}
+
+// deduplicateResults removes duplicate code chunks, keeping the highest-scoring (lowest distance) entry
+func deduplicateResults(results []SearchResult) []SearchResult {
+	if len(results) == 0 {
+		return results
+	}
+
+	// Group by code content
+	type resultGroup struct {
+		bestResult SearchResult
+		bestScore  float64
+	}
+
+	groups := make(map[string]*resultGroup)
+
+	for _, result := range results {
+		if group, exists := groups[result.Code]; exists {
+			// Keep the result with the lower distance (better match)
+			if result.Score < group.bestScore {
+				group.bestResult = result
+				group.bestScore = result.Score
+			}
+		} else {
+			// New unique code
+			groups[result.Code] = &resultGroup{
+				bestResult: result,
+				bestScore:  result.Score,
+			}
+		}
+	}
+
+	// Extract deduplicated results
+	deduplicated := make([]SearchResult, 0, len(groups))
+	for _, group := range groups {
+		deduplicated = append(deduplicated, group.bestResult)
+	}
+
+	// Sort by score (ascending - lower distance is better)
+	sort.Slice(deduplicated, func(i, j int) bool {
+		return deduplicated[i].Score < deduplicated[j].Score
+	})
+
+	return deduplicated
 }
 
 func getStringOrDefault(m map[string]interface{}, key string, defaultVal string) string {
