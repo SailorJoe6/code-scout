@@ -1,6 +1,8 @@
 package main
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"sync"
@@ -16,6 +18,12 @@ import (
 var (
 	workers int
 )
+
+// computeContentHash generates a SHA256 hash of the content
+func computeContentHash(content string) string {
+	hash := sha256.Sum256([]byte(content))
+	return hex.EncodeToString(hash[:])
+}
 
 var indexCmd = &cobra.Command{
 	Use:   "index",
@@ -136,10 +144,27 @@ and store them in a local LanceDB vector database (.code-scout/).`,
 		fmt.Println("Generating embeddings...")
 		embedClient := embeddings.NewOllamaClient()
 
-		// Collect all chunk texts for embedding
+		// Collect all chunk texts and compute content hashes
 		chunkTexts := make([]string, len(allChunks))
+		chunkHashes := make([]string, len(allChunks))
+		hashToFirstIndex := make(map[string]int)
+
 		for i, chunk := range allChunks {
 			chunkTexts[i] = chunk.Code
+			hash := computeContentHash(chunk.Code)
+			chunkHashes[i] = hash
+
+			// Track first occurrence of each unique content hash
+			if _, exists := hashToFirstIndex[hash]; !exists {
+				hashToFirstIndex[hash] = i
+			}
+		}
+
+		// Count unique chunks for deduplication stats
+		uniqueCount := len(hashToFirstIndex)
+		duplicateCount := len(allChunks) - uniqueCount
+		if duplicateCount > 0 {
+			fmt.Printf("Found %d duplicate chunks (will skip %d embeddings)\n", duplicateCount, duplicateCount)
 		}
 
 		// Generate embeddings concurrently with worker pool
@@ -153,6 +178,7 @@ and store them in a local LanceDB vector database (.code-scout/).`,
 		type job struct {
 			index int
 			text  string
+			hash  string
 		}
 
 		type result struct {
@@ -161,8 +187,18 @@ and store them in a local LanceDB vector database (.code-scout/).`,
 			err       error
 		}
 
-		jobs := make(chan job, len(chunkTexts))
-		results := make(chan result, len(chunkTexts))
+		// Only create jobs for unique content hashes
+		uniqueJobs := make([]job, 0, uniqueCount)
+		for hash, firstIdx := range hashToFirstIndex {
+			uniqueJobs = append(uniqueJobs, job{
+				index: firstIdx,
+				text:  chunkTexts[firstIdx],
+				hash:  hash,
+			})
+		}
+
+		jobs := make(chan job, len(uniqueJobs))
+		results := make(chan result, len(uniqueJobs))
 
 		// Start worker pool
 		var wg sync.WaitGroup
@@ -181,9 +217,9 @@ and store them in a local LanceDB vector database (.code-scout/).`,
 			}()
 		}
 
-		// Send jobs
-		for i, text := range chunkTexts {
-			jobs <- job{index: i, text: text}
+		// Send only unique jobs
+		for _, j := range uniqueJobs {
+			jobs <- j
 		}
 		close(jobs)
 
@@ -193,7 +229,7 @@ and store them in a local LanceDB vector database (.code-scout/).`,
 			close(results)
 		}()
 
-		// Collect results
+		// Collect results for unique chunks
 		completed := 0
 		for r := range results {
 			if r.err != nil {
@@ -201,8 +237,20 @@ and store them in a local LanceDB vector database (.code-scout/).`,
 			}
 			allEmbeddings[r.index] = r.embedding
 			completed++
-			if completed == 1 || completed%50 == 0 || completed == len(chunkTexts) {
-				fmt.Printf("  Generated %d/%d embeddings (dim: %d)\n", completed, len(chunkTexts), len(r.embedding))
+			if completed == 1 || completed%50 == 0 || completed == uniqueCount {
+				fmt.Printf("  Generated %d/%d unique embeddings (dim: %d)\n", completed, uniqueCount, len(r.embedding))
+			}
+		}
+
+		// Copy embeddings to duplicate chunks
+		if duplicateCount > 0 {
+			fmt.Printf("Copying embeddings to %d duplicate chunks...\n", duplicateCount)
+			for i, hash := range chunkHashes {
+				if allEmbeddings[i] == nil {
+					// This is a duplicate, copy from first occurrence
+					firstIdx := hashToFirstIndex[hash]
+					allEmbeddings[i] = allEmbeddings[firstIdx]
+				}
 			}
 		}
 
