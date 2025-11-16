@@ -67,6 +67,7 @@ func (s *LanceDBStore) getOrCreateSchema() (*arrow.Schema, error) {
 		{Name: "line_end", Type: arrow.PrimitiveTypes.Int32, Nullable: false},
 		{Name: "language", Type: arrow.BinaryTypes.String, Nullable: false},
 		{Name: "code", Type: arrow.BinaryTypes.String, Nullable: false},
+		{Name: "embedding_type", Type: arrow.BinaryTypes.String, Nullable: false}, // "code" or "docs"
 		{Name: "vector", Type: arrow.FixedSizeListOf(VectorDimension, arrow.PrimitiveTypes.Float32), Nullable: false},
 	}
 	s.schema = arrow.NewSchema(fields, nil)
@@ -179,6 +180,7 @@ func (s *LanceDBStore) StoreChunks(chunks []chunker.Chunk, embeddings [][]float6
 	lineEnds := make([]int32, len(chunks))
 	languages := make([]string, len(chunks))
 	codes := make([]string, len(chunks))
+	embeddingTypes := make([]string, len(chunks))
 	allVectors := make([]float32, len(chunks)*VectorDimension)
 
 	for i, chunk := range chunks {
@@ -188,6 +190,7 @@ func (s *LanceDBStore) StoreChunks(chunks []chunker.Chunk, embeddings [][]float6
 		lineEnds[i] = int32(chunk.LineEnd)
 		languages[i] = chunk.Language
 		codes[i] = chunk.Code
+		embeddingTypes[i] = chunk.EmbeddingType
 
 		// Convert float64 embeddings to float32 and flatten
 		for j, val := range embeddings[i] {
@@ -226,6 +229,11 @@ func (s *LanceDBStore) StoreChunks(chunks []chunker.Chunk, embeddings [][]float6
 	codeArray := codeBuilder.NewArray()
 	defer codeArray.Release()
 
+	embeddingTypeBuilder := array.NewStringBuilder(pool)
+	embeddingTypeBuilder.AppendValues(embeddingTypes, nil)
+	embeddingTypeArray := embeddingTypeBuilder.NewArray()
+	defer embeddingTypeArray.Release()
+
 	// Build vector array
 	vectorFloat32Builder := array.NewFloat32Builder(pool)
 	vectorFloat32Builder.AppendValues(allVectors, nil)
@@ -240,7 +248,7 @@ func (s *LanceDBStore) StoreChunks(chunks []chunker.Chunk, embeddings [][]float6
 	defer vectorArray.Release()
 
 	// Create record and insert
-	columns := []arrow.Array{chunkIDArray, filePathArray, lineStartArray, lineEndArray, languageArray, codeArray, vectorArray}
+	columns := []arrow.Array{chunkIDArray, filePathArray, lineStartArray, lineEndArray, languageArray, codeArray, embeddingTypeArray, vectorArray}
 	record := array.NewRecord(s.schema, columns, int64(len(chunks)))
 	defer record.Release()
 
