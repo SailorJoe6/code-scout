@@ -49,14 +49,14 @@ LLM agents can later choose the correct embedding model for each query type (cod
                             │
                  Two-Pass Embedding Pipeline
                             │
-        ┌───────────────────┴─────────────────────┐
-        │                                         │
+          ┌─────────────────┴───────────────────────┐
+          │                                         │
 ┌──────────────────────┐                   ┌──────────────────────┐
 │  Code Embedding      │                   │  Docs Embedding      │
 │  (API: Code Model)   │                   │  (API: Text Model)   │
 └───────────┬──────────┘                   └──────────┬───────────┘
             │                                         │
-    ┌───────▼────────┐                      ┌────────▼────────────┐
+    ┌───────▼────────┐                      ┌─────────▼───────────┐
     │ Code Chunks    │                      │ Docs Chunks         │
     │ + Metadata     │                      │ + Metadata          │
     └───────┬────────┘                      └────────┬────────────┘

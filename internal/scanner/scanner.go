@@ -26,11 +26,16 @@ func New(rootDir string) *Scanner {
 
 // languageExtensions maps file extensions to language names
 var languageExtensions = map[string]string{
+	// Code files
 	".py": "python",
 	".go": "go",
+	// Documentation files
+	".md":  "markdown",
+	".txt": "text",
+	".rst": "rst",
 }
 
-// ScanCodeFiles recursively scans for code files (Python, Go, etc.)
+// ScanCodeFiles recursively scans for code and documentation files
 func (s *Scanner) ScanCodeFiles() ([]FileInfo, error) {
 	var files []FileInfo
 
@@ -49,7 +54,12 @@ func (s *Scanner) ScanCodeFiles() ([]FileInfo, error) {
 			return filepath.SkipDir
 		}
 
-		// Check for supported code files
+		// Skip hidden files
+		if !info.IsDir() && strings.HasPrefix(info.Name(), ".") {
+			return nil
+		}
+
+		// Check for supported code and documentation files
 		if !info.IsDir() {
 			ext := filepath.Ext(info.Name())
 			if lang, ok := languageExtensions[ext]; ok {
