@@ -125,12 +125,15 @@ and store them in a local LanceDB vector database (.code-scout/).`,
 		}
 		fmt.Println()
 
-		// Chunk files that need indexing
-		ch := chunker.New()
-		var allChunks []chunker.Chunk
+		// Chunk files that need indexing using semantic chunker
+		semanticChunker, err := chunker.NewSemantic()
+		if err != nil {
+			return fmt.Errorf("failed to create semantic chunker: %w", err)
+		}
 
+		var allChunks []chunker.Chunk
 		for _, f := range filesToIndex {
-			chunks, err := ch.ChunkFile(f.Path, f.Language)
+			chunks, err := semanticChunker.ChunkFile(f.Path, f.Language)
 			if err != nil {
 				return fmt.Errorf("failed to chunk file %s: %w", f.Path, err)
 			}
@@ -140,121 +143,67 @@ and store them in a local LanceDB vector database (.code-scout/).`,
 
 		fmt.Printf("Total chunks: %d\n", len(allChunks))
 
-		// Generate embeddings
-		fmt.Println("Generating embeddings...")
-		embedClient := embeddings.NewOllamaClient()
-
-		// Collect all chunk texts and compute content hashes
-		chunkTexts := make([]string, len(allChunks))
-		chunkHashes := make([]string, len(allChunks))
-		hashToFirstIndex := make(map[string]int)
+		// Separate chunks by embedding type
+		var codeChunks, docsChunks []chunker.Chunk
+		var codeIndices, docsIndices []int
 
 		for i, chunk := range allChunks {
-			chunkTexts[i] = chunk.Code
-			hash := computeContentHash(chunk.Code)
-			chunkHashes[i] = hash
-
-			// Track first occurrence of each unique content hash
-			if _, exists := hashToFirstIndex[hash]; !exists {
-				hashToFirstIndex[hash] = i
+			if chunk.EmbeddingType == "code" {
+				codeChunks = append(codeChunks, chunk)
+				codeIndices = append(codeIndices, i)
+			} else if chunk.EmbeddingType == "docs" {
+				docsChunks = append(docsChunks, chunk)
+				docsIndices = append(docsIndices, i)
 			}
 		}
 
-		// Count unique chunks for deduplication stats
-		uniqueCount := len(hashToFirstIndex)
-		duplicateCount := len(allChunks) - uniqueCount
-		if duplicateCount > 0 {
-			fmt.Printf("Found %d duplicate chunks (will skip %d embeddings)\n", duplicateCount, duplicateCount)
+		fmt.Printf("Code chunks: %d, Docs chunks: %d\n", len(codeChunks), len(docsChunks))
+
+		// Initialize all embeddings array
+		allEmbeddings := make([][]float64, len(allChunks))
+
+		// TWO-PASS EMBEDDING GENERATION
+
+		// PASS 1: Code chunks with code-scout-code model
+		if len(codeChunks) > 0 {
+			fmt.Println("\nPass 1: Generating code embeddings...")
+			codeClient := embeddings.NewOllamaClient() // Uses DefaultCodeModel
+
+			codeEmbeddings, err := generateEmbeddingsWithDedup(codeClient, codeChunks, workers)
+			if err != nil {
+				return fmt.Errorf("failed to generate code embeddings: %w", err)
+			}
+
+			// Map code embeddings back to allEmbeddings
+			for i, embedding := range codeEmbeddings {
+				allEmbeddings[codeIndices[i]] = embedding
+			}
 		}
 
-		// Generate embeddings concurrently with worker pool
-		numWorkers := workers
-		if numWorkers <= 0 {
-			numWorkers = 10 // Default to 10 workers for faster throughput
-		}
-		fmt.Printf("Using %d concurrent workers for embedding generation\n", numWorkers)
-		allEmbeddings := make([][]float64, len(chunkTexts))
+		// PASS 2: Docs chunks with code-scout-text model
+		if len(docsChunks) > 0 {
+			fmt.Println("\nPass 2: Generating documentation embeddings...")
+			textClient := embeddings.NewOllamaClientWithModel(embeddings.DefaultTextModel)
 
-		type job struct {
-			index int
-			text  string
-			hash  string
-		}
+			docsEmbeddings, err := generateEmbeddingsWithDedup(textClient, docsChunks, workers)
+			if err != nil {
+				return fmt.Errorf("failed to generate docs embeddings: %w", err)
+			}
 
-		type result struct {
-			index     int
-			embedding []float64
-			err       error
-		}
-
-		// Only create jobs for unique content hashes
-		uniqueJobs := make([]job, 0, uniqueCount)
-		for hash, firstIdx := range hashToFirstIndex {
-			uniqueJobs = append(uniqueJobs, job{
-				index: firstIdx,
-				text:  chunkTexts[firstIdx],
-				hash:  hash,
-			})
-		}
-
-		jobs := make(chan job, len(uniqueJobs))
-		results := make(chan result, len(uniqueJobs))
-
-		// Start worker pool
-		var wg sync.WaitGroup
-		for w := 0; w < numWorkers; w++ {
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
-				for j := range jobs {
-					embedding, err := embedClient.Embed(j.text)
-					results <- result{
-						index:     j.index,
-						embedding: embedding,
-						err:       err,
-					}
+			// Pad docs embeddings to match code embedding dimensions (3584)
+			// nomic-embed-text produces 768-dim vectors, pad with zeros
+			const targetDim = 3584
+			for i, embedding := range docsEmbeddings {
+				if len(embedding) < targetDim {
+					padded := make([]float64, targetDim)
+					copy(padded, embedding)
+					docsEmbeddings[i] = padded
 				}
-			}()
-		}
-
-		// Send only unique jobs
-		for _, j := range uniqueJobs {
-			jobs <- j
-		}
-		close(jobs)
-
-		// Close results channel when all workers done
-		go func() {
-			wg.Wait()
-			close(results)
-		}()
-
-		// Collect results for unique chunks
-		completed := 0
-		for r := range results {
-			if r.err != nil {
-				return fmt.Errorf("failed to generate embedding for chunk %d: %w", r.index, r.err)
-			}
-			allEmbeddings[r.index] = r.embedding
-			completed++
-			if completed == 1 || completed%50 == 0 || completed == uniqueCount {
-				fmt.Printf("  Generated %d/%d unique embeddings (dim: %d)\n", completed, uniqueCount, len(r.embedding))
+				allEmbeddings[docsIndices[i]] = docsEmbeddings[i]
 			}
 		}
 
-		// Copy embeddings to duplicate chunks
-		if duplicateCount > 0 {
-			fmt.Printf("Copying embeddings to %d duplicate chunks...\n", duplicateCount)
-			for i, hash := range chunkHashes {
-				if allEmbeddings[i] == nil {
-					// This is a duplicate, copy from first occurrence
-					firstIdx := hashToFirstIndex[hash]
-					allEmbeddings[i] = allEmbeddings[firstIdx]
-				}
-			}
-		}
-
-		fmt.Println("Embeddings generated successfully!")
+		fmt.Println("\nAll embeddings generated successfully!")
 
 		// Store chunks and embeddings in LanceDB
 		fmt.Println("Storing in vector database...")
@@ -282,7 +231,117 @@ and store them in a local LanceDB vector database (.code-scout/).`,
 	},
 }
 
+// generateEmbeddingsWithDedup generates embeddings for chunks with content deduplication
+func generateEmbeddingsWithDedup(client *embeddings.OllamaClient, chunks []chunker.Chunk, numWorkers int) ([][]float64, error) {
+	if len(chunks) == 0 {
+		return nil, nil
+	}
+
+	// Set default workers
+	if numWorkers <= 0 {
+		numWorkers = 10
+	}
+
+	// Compute content hashes for deduplication
+	chunkHashes := make([]string, len(chunks))
+	hashToFirstIndex := make(map[string]int)
+
+	for i, chunk := range chunks {
+		hash := computeContentHash(chunk.Code)
+		chunkHashes[i] = hash
+
+		if _, exists := hashToFirstIndex[hash]; !exists {
+			hashToFirstIndex[hash] = i
+		}
+	}
+
+	uniqueCount := len(hashToFirstIndex)
+	duplicateCount := len(chunks) - uniqueCount
+
+	if duplicateCount > 0 {
+		fmt.Printf("Found %d duplicate chunks (will skip %d embeddings)\n", duplicateCount, duplicateCount)
+	}
+
+	fmt.Printf("Using %d concurrent workers\n", numWorkers)
+
+	// Generate embeddings for unique chunks only
+	allEmbeddings := make([][]float64, len(chunks))
+
+	type job struct {
+		index int
+		text  string
+	}
+
+	type result struct {
+		index     int
+		embedding []float64
+		err       error
+	}
+
+	// Create jobs for unique chunks only
+	jobs := make(chan job, uniqueCount)
+	results := make(chan result, uniqueCount)
+
+	// Start worker pool
+	var wg sync.WaitGroup
+	for w := 0; w < numWorkers; w++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for j := range jobs {
+				embedding, err := client.Embed(j.text)
+				results <- result{
+					index:     j.index,
+					embedding: embedding,
+					err:       err,
+				}
+			}
+		}()
+	}
+
+	// Send jobs for unique chunks
+	for _, firstIdx := range hashToFirstIndex {
+		jobs <- job{
+			index: firstIdx,
+			text:  chunks[firstIdx].Code,
+		}
+	}
+	close(jobs)
+
+	// Close results when workers done
+	go func() {
+		wg.Wait()
+		close(results)
+	}()
+
+	// Collect results
+	completed := 0
+	for r := range results {
+		if r.err != nil {
+			return nil, fmt.Errorf("failed to generate embedding: %w", r.err)
+		}
+		allEmbeddings[r.index] = r.embedding
+		completed++
+		if completed == 1 || completed%50 == 0 || completed == uniqueCount {
+			fmt.Printf("  Generated %d/%d unique embeddings (dim: %d)\n", completed, uniqueCount, len(r.embedding))
+		}
+	}
+
+	// Copy embeddings to duplicate chunks
+	if duplicateCount > 0 {
+		fmt.Printf("Copying embeddings to %d duplicate chunks...\n", duplicateCount)
+		for i, hash := range chunkHashes {
+			if allEmbeddings[i] == nil {
+				firstIdx := hashToFirstIndex[hash]
+				allEmbeddings[i] = allEmbeddings[firstIdx]
+			}
+		}
+	}
+
+	return allEmbeddings, nil
+}
+
 func init() {
 	rootCmd.AddCommand(indexCmd)
-indexCmd.Flags().IntVarP(&workers, "workers", "w", 10, "Number of concurrent workers for embedding generation (default: 10)")
+	indexCmd.Flags().IntVarP(&workers, "workers", "w", 10, "Number of concurrent workers for embedding generation (default: 10)")
 }

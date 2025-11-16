@@ -13,6 +13,8 @@ const (
 	DefaultOllamaEndpoint = "http://localhost:11434"
 	// DefaultCodeModel is the default model for code embeddings
 	DefaultCodeModel = "code-scout-code"
+	// DefaultTextModel is the default model for text/documentation embeddings
+	DefaultTextModel = "code-scout-text"
 )
 
 // OllamaClient handles communication with Ollama API
@@ -33,11 +35,20 @@ type ollamaEmbedResponse struct {
 	Embedding []float64 `json:"embedding"`
 }
 
-// NewOllamaClient creates a new Ollama client
+// NewOllamaClient creates a new Ollama client with the default code model
 func NewOllamaClient() *OllamaClient {
 	return &OllamaClient{
 		endpoint: DefaultOllamaEndpoint,
 		model:    DefaultCodeModel,
+		client:   &http.Client{},
+	}
+}
+
+// NewOllamaClientWithModel creates a new Ollama client with a specific model
+func NewOllamaClientWithModel(model string) *OllamaClient {
+	return &OllamaClient{
+		endpoint: DefaultOllamaEndpoint,
+		model:    model,
 		client:   &http.Client{},
 	}
 }
