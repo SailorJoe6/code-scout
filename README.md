@@ -13,6 +13,40 @@ Code Scout uses open source embedding models to create semantic representations 
 - **Local Vector Database**: All data stays local - no cloud dependencies
 - **AI Agent Optimized**: Built specifically for AI coding assistants like Claude and Codex
 - **Full Codebase Awareness**: Enables AI agents to understand the complete context of your project
+- **Multi-Language Support**: Semantic chunking for 11 programming languages
+
+## Language Support
+
+Code Scout provides semantic code chunking using Tree-sitter parsers. Each language extracts meaningful code units (functions, classes, methods, structs, etc.) for precise embedding and retrieval.
+
+### Supported Languages
+
+| Language | File Extensions | Semantic Chunking | Status |
+|----------|----------------|-------------------|--------|
+| **Go** | `.go` | Functions, methods, structs, interfaces, constants, variables | ✅ Fully Supported |
+| **Python** | `.py` | Functions, classes, methods, async functions, decorators | ✅ Fully Supported |
+| **JavaScript** | `.js`, `.jsx`, `.mjs`, `.cjs` | Functions, classes, methods, arrow functions, generators | ✅ Fully Supported |
+| **TypeScript** | `.ts`, `.tsx` | Functions, classes, methods, arrow functions, generators | ✅ Fully Supported |
+| **Java** | `.java` | Classes, interfaces, methods, constructors, enums, records | ✅ Fully Supported |
+| **Rust** | `.rs` | Functions, structs, enums, traits, impls, modules | ✅ Fully Supported |
+| **C** | `.c`, `.h` | Functions, structs, unions, enums, typedefs | ✅ Fully Supported |
+| **C++** | `.cpp`, `.cc`, `.cxx`, `.hpp`, `.hxx`, `.h` | Functions, classes, namespaces, templates, methods | ✅ Fully Supported |
+| **Ruby** | `.rb` | Methods, classes, modules, singleton methods | ✅ Fully Supported |
+| **PHP** | `.php` | Functions, classes, methods, traits, interfaces, enums | ✅ Fully Supported |
+| **Scala** | `.scala` | Functions, classes, objects, traits, case classes | ✅ Fully Supported |
+
+### Semantic Chunking Benefits
+
+Traditional code search tools split files by line count or character limits, often breaking functions and classes mid-definition. Code Scout's semantic chunking:
+
+- **Preserves Code Boundaries**: Functions, classes, and methods are kept intact
+- **Captures Context**: Includes docstrings, comments, and signatures
+- **Enables Precise Search**: Find specific functions or classes, not arbitrary text snippets
+- **Improves Embeddings**: Complete code units produce more meaningful semantic vectors
+
+### Language Detection
+
+Code Scout automatically detects the language of each file based on file extension. For files with ambiguous extensions (e.g., `.h` files could be C or C++), it uses heuristic analysis to determine the correct language.
 
 ## Embedding Models
 
