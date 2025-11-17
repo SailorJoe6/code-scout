@@ -132,6 +132,100 @@ For AI agents working on this project:
 
 **Note on Symlink**: `CLAUDE.md` is a symbolic link pointing to `AGENTS.md`. This works natively on Unix-like systems (Linux, macOS). On Windows, Developer Mode may need to be enabled for proper symlink support, otherwise the file may appear as a text file containing the target path.
 
+## Configuration
+
+Code Scout can be configured to use custom embedding API endpoints, making it compatible with OpenAI-compatible services like OpenRouter, remote GPU hosts, or any other compatible API.
+
+### Configuration Files
+
+Configuration can be specified in two ways:
+
+1. **User-level**: `~/.code-scout/config.json` - Global defaults for all projects
+2. **Project-level**: `.code-scout.json` - Project-specific settings (overrides user-level)
+
+### Configuration Format
+
+Create a JSON file with the following structure:
+
+```json
+{
+  "endpoint": "http://localhost:11434",
+  "code_model": "code-scout-code",
+  "text_model": "code-scout-text"
+}
+```
+
+**Fields:**
+- `endpoint`: The base URL of the OpenAI-compatible embedding API (no trailing slash)
+- `code_model`: Model name to use for code embeddings
+- `text_model`: Model name to use for documentation embeddings
+
+### Example Configurations
+
+**Default (Ollama Local)**:
+```json
+{
+  "endpoint": "http://localhost:11434",
+  "code_model": "code-scout-code",
+  "text_model": "code-scout-text"
+}
+```
+
+**OpenRouter**:
+```json
+{
+  "endpoint": "https://openrouter.ai/api",
+  "code_model": "nomic-ai/nomic-embed-text",
+  "text_model": "nomic-ai/nomic-embed-text"
+}
+```
+
+**Remote Ollama Server**:
+```json
+{
+  "endpoint": "http://my-gpu-server:11434",
+  "code_model": "code-scout-code",
+  "text_model": "code-scout-text"
+}
+```
+
+### CLI Flag Override
+
+You can override the endpoint for a single command using the `--endpoint` flag:
+
+```bash
+# Use a different endpoint for this indexing operation
+code-scout index --endpoint http://remote-server:11434
+
+# Use a different endpoint for searching
+code-scout search "authentication" --endpoint https://api.example.com
+```
+
+### Setup Example
+
+```bash
+# Create user-level config directory
+mkdir -p ~/.code-scout
+
+# Create default configuration
+cat > ~/.code-scout/config.json << 'EOF'
+{
+  "endpoint": "http://localhost:11434",
+  "code_model": "code-scout-code",
+  "text_model": "code-scout-text"
+}
+EOF
+
+# Or create project-specific config
+cat > .code-scout.json << 'EOF'
+{
+  "endpoint": "http://my-team-server:11434",
+  "code_model": "custom-code-model",
+  "text_model": "custom-text-model"
+}
+EOF
+```
+
 ## Getting Started
 
 *Coming soon - installation and usage instructions*

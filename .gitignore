@@ -24,6 +24,9 @@ go.work
 # Code Scout vector databases (per-project, local only)
 .code-scout/
 
+# Code Scout project-specific config (may contain sensitive endpoints/credentials)
+.code-scout.json
+
 # LanceDB native libraries (downloaded via script)
 lib/
 include/

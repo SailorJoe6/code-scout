@@ -62,6 +62,15 @@ func NewOllamaClientWithModel(model string) *OllamaClient {
 	}
 }
 
+// NewOllamaClientWithEndpoint creates a new Ollama client with a custom endpoint and model
+func NewOllamaClientWithEndpoint(endpoint, model string) *OllamaClient {
+	return &OllamaClient{
+		endpoint: endpoint,
+		model:    model,
+		client:   &http.Client{},
+	}
+}
+
 // Embed generates an embedding for the given text using OpenAI-compatible API with retry logic
 func (c *OllamaClient) Embed(text string) ([]float64, error) {
 	embeddings, err := c.EmbedMany([]string{text})
