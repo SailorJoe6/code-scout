@@ -94,9 +94,18 @@ func (s *SemanticChunker) chunkDocumentation(filePath, language string) ([]Chunk
 
 // chunkCode handles Go and Python files with tree-sitter
 func (s *SemanticChunker) chunkCode(filePath, language string) ([]Chunk, error) {
-	// Only support Go for now
+	// For unsupported languages, fall back to basic blank-line chunking
 	if language != "go" {
-		return nil, fmt.Errorf("code chunker only supports Go files currently, got: %s", language)
+		basicChunker := New()
+		chunks, err := basicChunker.ChunkFile(filePath, language)
+		if err != nil {
+			return nil, err
+		}
+		// Set embedding type to "code" for all chunks
+		for i := range chunks {
+			chunks[i].EmbeddingType = "code"
+		}
+		return chunks, nil
 	}
 
 	// Read the source file
