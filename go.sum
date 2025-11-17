@@ -36,6 +36,8 @@ github.com/tree-sitter/tree-sitter-go v0.25.0 h1:cEB0Q3LHgZtS+ECHx9wcP7AwzoOddJF
 github.com/tree-sitter/tree-sitter-go v0.25.0/go.mod h1:Jrx8QqYN0v7npv1fJRH1AznddllYiCMUChtVjxPK040=
 github.com/tree-sitter/tree-sitter-python v0.25.0 h1:O6XD9v8U1LOcRc3cNj9nM7XufrtEBezE6VrpRrHZDf0=
 github.com/tree-sitter/tree-sitter-python v0.25.0/go.mod h1:cpdthSy/Yoa28aJFBscFHlGiU+cnSiSh1kuDVtI8YeM=
+github.com/tree-sitter/tree-sitter-scala v0.24.0 h1:F8UcZQdNQSkOGtkW8tUsFrqifOVXzmzJ19/JSbB+X3E=
+github.com/tree-sitter/tree-sitter-scala v0.24.0/go.mod h1:BmDV0f9rgsnGuG9QtKXQZnqJvECyR9fM8wVg984ulBo=
 github.com/zeebo/assert v1.3.0 h1:g7C04CbJuIDKNPFHmsk4hwZDO5O+kntRxzaUoNXj+IQ=
 github.com/zeebo/assert v1.3.0/go.mod h1:Pq9JiuJQpG8JLJdtkwrJESF0Foym2/D9XMU5ciN/wJ0=
 github.com/zeebo/xxh3 v1.0.2 h1:xZmwmqxHZA8AI603jOQ0tMqmBr9lPeFwGg6d+xy9DC0=
