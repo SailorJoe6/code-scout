@@ -12,6 +12,7 @@ import (
 // Config holds the application configuration
 type Config struct {
 	Endpoint  string `json:"endpoint"`
+	APIKey    string `json:"api_key,omitempty"`    // Optional API key for authentication
 	CodeModel string `json:"code_model"`
 	TextModel string `json:"text_model"`
 }
@@ -83,6 +84,9 @@ func loadFromFile(path string) (*Config, error) {
 func mergeConfig(dst, src *Config) {
 	if src.Endpoint != "" {
 		dst.Endpoint = src.Endpoint
+	}
+	if src.APIKey != "" {
+		dst.APIKey = src.APIKey
 	}
 	if src.CodeModel != "" {
 		dst.CodeModel = src.CodeModel

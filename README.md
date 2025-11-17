@@ -150,6 +150,7 @@ Create a JSON file with the following structure:
 ```json
 {
   "endpoint": "http://localhost:11434",
+  "api_key": "",
   "code_model": "code-scout-code",
   "text_model": "code-scout-text"
 }
@@ -157,6 +158,7 @@ Create a JSON file with the following structure:
 
 **Fields:**
 - `endpoint`: The base URL of the OpenAI-compatible embedding API (no trailing slash)
+- `api_key`: (Optional) API key for authentication. Sent as `Authorization: Bearer <api_key>` header
 - `code_model`: Model name to use for code embeddings
 - `text_model`: Model name to use for documentation embeddings
 
@@ -175,6 +177,7 @@ Create a JSON file with the following structure:
 ```json
 {
   "endpoint": "https://openrouter.ai/api",
+  "api_key": "sk-or-v1-...",
   "code_model": "nomic-ai/nomic-embed-text",
   "text_model": "nomic-ai/nomic-embed-text"
 }
@@ -207,7 +210,7 @@ code-scout search "authentication" --endpoint https://api.example.com
 # Create user-level config directory
 mkdir -p ~/.code-scout
 
-# Create default configuration
+# Create default configuration (local Ollama, no API key needed)
 cat > ~/.code-scout/config.json << 'EOF'
 {
   "endpoint": "http://localhost:11434",
@@ -216,12 +219,13 @@ cat > ~/.code-scout/config.json << 'EOF'
 }
 EOF
 
-# Or create project-specific config
+# Or create project-specific config with API key for OpenRouter
 cat > .code-scout.json << 'EOF'
 {
-  "endpoint": "http://my-team-server:11434",
-  "code_model": "custom-code-model",
-  "text_model": "custom-text-model"
+  "endpoint": "https://openrouter.ai/api",
+  "api_key": "sk-or-v1-your-key-here",
+  "code_model": "nomic-ai/nomic-embed-text",
+  "text_model": "nomic-ai/nomic-embed-text"
 }
 EOF
 ```

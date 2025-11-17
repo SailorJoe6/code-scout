@@ -403,11 +403,11 @@ POST http://localhost:11434/api/embeddings
 - Embedding dimension: 3584
 - Context window: 32K tokens
 
-**Implementation**: internal/embeddings/ollama.go:18-93
+**Implementation**: internal/embeddings/client.go:48-179
 
 **Example Usage**:
 ```go
-client := embeddings.NewOllamaClient()
+client := embeddings.NewClient()
 embedding, err := client.Embed("func main() {...}")
 // embedding = []float64{0.123, -0.456, ...} // 3584 dims
 ```

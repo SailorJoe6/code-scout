@@ -11,14 +11,14 @@ var (
 
 	newCodeEmbeddingClient = func() embeddings.Client {
 		if globalConfig != nil {
-			return embeddings.NewOllamaClientWithEndpoint(globalConfig.Endpoint, globalConfig.CodeModel)
+			return embeddings.NewClientWithConfig(globalConfig.Endpoint, globalConfig.APIKey, globalConfig.CodeModel)
 		}
-		return embeddings.NewOllamaClient()
+		return embeddings.NewClient()
 	}
 	newDocsEmbeddingClient = func() embeddings.Client {
 		if globalConfig != nil {
-			return embeddings.NewOllamaClientWithEndpoint(globalConfig.Endpoint, globalConfig.TextModel)
+			return embeddings.NewClientWithConfig(globalConfig.Endpoint, globalConfig.APIKey, globalConfig.TextModel)
 		}
-		return embeddings.NewOllamaClientWithModel(embeddings.DefaultTextModel)
+		return embeddings.NewClientWithModel(embeddings.DefaultTextModel)
 	}
 )

@@ -10,23 +10,25 @@ import (
 )
 
 const (
-	// DefaultOllamaEndpoint is the default Ollama API endpoint
-	DefaultOllamaEndpoint = "http://localhost:11434"
+	// DefaultEndpoint is the default embedding API endpoint (Ollama local)
+	DefaultEndpoint = "http://localhost:11434"
 	// DefaultCodeModel is the default model for code embeddings
 	DefaultCodeModel = "code-scout-code"
 	// DefaultTextModel is the default model for text/documentation embeddings
 	DefaultTextModel = "code-scout-text"
 )
 
-// OllamaClient handles communication with Ollama API using OpenAI-compatible format
+// Client is the interface for embedding clients
 type Client interface {
 	Embed(text string) ([]float64, error)
 	EmbedMany(texts []string) ([][]float64, error)
 }
 
-// OllamaClient handles communication with Ollama API using OpenAI-compatible format
-type OllamaClient struct {
+// OpenAIClient handles communication with OpenAI-compatible embedding APIs
+// (supports Ollama, OpenRouter, and other compatible services)
+type OpenAIClient struct {
 	endpoint string
+	apiKey   string        // Optional API key for authentication
 	model    string
 	client   *http.Client
 }
@@ -44,35 +46,60 @@ type openAIEmbedResponse struct {
 	} `json:"data"`
 }
 
-// NewOllamaClient creates a new Ollama client with the default code model
-func NewOllamaClient() *OllamaClient {
-	return &OllamaClient{
-		endpoint: DefaultOllamaEndpoint,
+// NewClient creates a new embedding client with default endpoint and code model
+func NewClient() *OpenAIClient {
+	return &OpenAIClient{
+		endpoint: DefaultEndpoint,
 		model:    DefaultCodeModel,
 		client:   &http.Client{},
 	}
 }
 
-// NewOllamaClientWithModel creates a new Ollama client with a specific model
-func NewOllamaClientWithModel(model string) *OllamaClient {
-	return &OllamaClient{
-		endpoint: DefaultOllamaEndpoint,
+// NewClientWithModel creates a new embedding client with default endpoint and custom model
+func NewClientWithModel(model string) *OpenAIClient {
+	return &OpenAIClient{
+		endpoint: DefaultEndpoint,
 		model:    model,
 		client:   &http.Client{},
 	}
 }
 
-// NewOllamaClientWithEndpoint creates a new Ollama client with a custom endpoint and model
-func NewOllamaClientWithEndpoint(endpoint, model string) *OllamaClient {
-	return &OllamaClient{
+// NewClientWithEndpoint creates a new embedding client with custom endpoint and model
+func NewClientWithEndpoint(endpoint, model string) *OpenAIClient {
+	return &OpenAIClient{
 		endpoint: endpoint,
 		model:    model,
 		client:   &http.Client{},
 	}
 }
 
+// NewClientWithConfig creates a new embedding client with custom endpoint, API key, and model
+func NewClientWithConfig(endpoint, apiKey, model string) *OpenAIClient {
+	return &OpenAIClient{
+		endpoint: endpoint,
+		apiKey:   apiKey,
+		model:    model,
+		client:   &http.Client{},
+	}
+}
+
+// Deprecated: Use NewClient instead
+func NewOllamaClient() *OpenAIClient {
+	return NewClient()
+}
+
+// Deprecated: Use NewClientWithModel instead
+func NewOllamaClientWithModel(model string) *OpenAIClient {
+	return NewClientWithModel(model)
+}
+
+// Deprecated: Use NewClientWithEndpoint instead
+func NewOllamaClientWithEndpoint(endpoint, model string) *OpenAIClient {
+	return NewClientWithEndpoint(endpoint, model)
+}
+
 // Embed generates an embedding for the given text using OpenAI-compatible API with retry logic
-func (c *OllamaClient) Embed(text string) ([]float64, error) {
+func (c *OpenAIClient) Embed(text string) ([]float64, error) {
 	embeddings, err := c.EmbedMany([]string{text})
 	if err != nil {
 		return nil, err
@@ -84,7 +111,7 @@ func (c *OllamaClient) Embed(text string) ([]float64, error) {
 }
 
 // EmbedMany generates embeddings for multiple texts in a single API request when possible
-func (c *OllamaClient) EmbedMany(texts []string) ([][]float64, error) {
+func (c *OpenAIClient) EmbedMany(texts []string) ([][]float64, error) {
 	if len(texts) == 0 {
 		return nil, nil
 	}
@@ -92,11 +119,11 @@ func (c *OllamaClient) EmbedMany(texts []string) ([][]float64, error) {
 }
 
 // EmbedBatch generates embeddings for multiple texts (alias for EmbedMany)
-func (c *OllamaClient) EmbedBatch(texts []string) ([][]float64, error) {
+func (c *OpenAIClient) EmbedBatch(texts []string) ([][]float64, error) {
 	return c.EmbedMany(texts)
 }
 
-func (c *OllamaClient) embedWithRetry(texts []string, expected int) ([][]float64, error) {
+func (c *OpenAIClient) embedWithRetry(texts []string, expected int) ([][]float64, error) {
 	const maxRetries = 3
 	const initialBackoff = 1 * time.Second
 
@@ -122,7 +149,7 @@ func (c *OllamaClient) embedWithRetry(texts []string, expected int) ([][]float64
 }
 
 // embedOnce makes a single embedding request without retries
-func (c *OllamaClient) embedOnce(texts []string) ([][]float64, error) {
+func (c *OpenAIClient) embedOnce(texts []string) ([][]float64, error) {
 	reqBody := openAIEmbedRequest{
 		Model: c.model,
 		Input: texts,
@@ -134,15 +161,26 @@ func (c *OllamaClient) embedOnce(texts []string) ([][]float64, error) {
 	}
 
 	url := c.endpoint + "/v1/embeddings"
-	resp, err := c.client.Post(url, "application/json", bytes.NewBuffer(jsonData))
+	req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonData))
 	if err != nil {
-		return nil, fmt.Errorf("failed to make request to Ollama: %w", err)
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	// Add Authorization header if API key is provided
+	if c.apiKey != "" {
+		req.Header.Set("Authorization", "Bearer "+c.apiKey)
+	}
+
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to make request to embedding API: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("Ollama API returned status %d: %s", resp.StatusCode, string(body))
+		return nil, fmt.Errorf("embedding API returned status %d: %s", resp.StatusCode, string(body))
 	}
 
 	var embedResp openAIEmbedResponse

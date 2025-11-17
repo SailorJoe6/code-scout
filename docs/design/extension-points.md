@@ -272,9 +272,9 @@ func (c *OpenAIClient) Embed(text string) ([]float64, error) {
 **Update index command**:
 ```go
 // Replace
-embedClient := embeddings.NewOllamaClient()
+embedClient := embeddings.NewClient()
 // With
-embedClient := embeddings.NewOpenAIClient()
+embedClient := embeddings.NewClientWithEndpoint("https://api.openai.com", "text-embedding-3-small")
 ```
 
 **Update schema dimensions** (as above).
