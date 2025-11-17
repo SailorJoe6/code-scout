@@ -33,34 +33,18 @@ All data stays local in the `.code-scout/` directory.
 
 ```go
 schema := arrow.NewSchema([]arrow.Field{
-    {
-        Name: "chunk_id",
-        Type: arrow.BinaryTypes.String,
-    },
-    {
-        Name: "file_path",
-        Type: arrow.BinaryTypes.String,
-    },
-    {
-        Name: "line_start",
-        Type: arrow.PrimitiveTypes.Int32,
-    },
-    {
-        Name: "line_end",
-        Type: arrow.PrimitiveTypes.Int32,
-    },
-    {
-        Name: "language",
-        Type: arrow.BinaryTypes.String,
-    },
-    {
-        Name: "code",
-        Type: arrow.BinaryTypes.LargeString,  // Supports >2GB strings
-    },
-    {
-        Name: "vector",
-        Type: arrow.FixedSizeListOf(3584, arrow.PrimitiveTypes.Float32),
-    },
+    {Name: "chunk_id", Type: arrow.BinaryTypes.String},
+    {Name: "file_path", Type: arrow.BinaryTypes.String},
+    {Name: "line_start", Type: arrow.PrimitiveTypes.Int32},
+    {Name: "line_end", Type: arrow.PrimitiveTypes.Int32},
+    {Name: "language", Type: arrow.BinaryTypes.String},
+    {Name: "code", Type: arrow.BinaryTypes.LargeString},
+    {Name: "chunk_type", Type: arrow.BinaryTypes.String, Nullable: true},
+    {Name: "heading", Type: arrow.BinaryTypes.String, Nullable: true},
+    {Name: "heading_level", Type: arrow.BinaryTypes.String, Nullable: true},
+    {Name: "parent_heading", Type: arrow.BinaryTypes.String, Nullable: true},
+    {Name: "embedding_type", Type: arrow.BinaryTypes.String},
+    {Name: "vector", Type: arrow.FixedSizeListOf(3584, arrow.PrimitiveTypes.Float32)},
 }, nil)
 ```
 
@@ -68,19 +52,25 @@ schema := arrow.NewSchema([]arrow.Field{
 - `chunk_id`: UUID string
 - `file_path`: Absolute path to source file
 - `line_start`, `line_end`: 1-indexed line numbers
-- `language`: "go", "python", etc.
-- `code`: The actual code content (can be large)
+- `language`: "go", "python", "markdown", etc.
+- `code`: The actual code or documentation content
+- `chunk_type`: Semantic label (function, section, document, etc.)
+- `heading` / `heading_level` / `parent_heading`: Markdown metadata for docs chunks
+- `embedding_type`: Indicates whether the chunk used the code or docs embedding model
 - `vector`: 3584-dimensional float32 array (embedding)
 
 **Implementation**: internal/storage/lancedb.go:83-107
 
 ### Why This Schema?
 
-**chunk_id**: Unique identifier for each chunk
-**file_path + line_start/end**: Navigate to source code
-**language**: Filter results by programming language
-**code**: Display in search results
-**vector**: Enable similarity search
+**chunk_id**: Unique identifier for each chunk  
+**file_path + line_start/end**: Navigate to source code  
+**language**: Filter results by programming language  
+**code**: Display in search results  
+**chunk_type**: Helps differentiate functions, structs, markdown sections, etc.  
+**heading metadata**: Provides docs context for CLI and downstream agents  
+**embedding_type**: Indicates which embedding space the vector belongs to  
+**vector**: Enables similarity search
 
 ## Data Insertion
 
@@ -115,13 +105,18 @@ func (s *LanceDBStore) StoreChunks(chunks []Chunk, embeddings [][]float64) error
 
 **Columnar Format**:
 ```
-chunk_id:   [uuid1, uuid2, uuid3, ...]
-file_path:  [path1, path2, path3, ...]
-line_start: [10, 45, 67, ...]
-line_end:   [23, 58, 89, ...]
-language:   [go, go, python, ...]
-code:       [func..., type..., def..., ...]
-vector:     [[0.1, 0.2, ...], [0.3, 0.4, ...], ...]
+chunk_id:       [uuid1, uuid2, uuid3, ...]
+file_path:      [path1, path2, path3, ...]
+line_start:     [10, 45, 67, ...]
+line_end:       [23, 58, 89, ...]
+language:       [go, go, markdown, ...]
+code:           [func..., type..., "## Heading", ...]
+chunk_type:     [function, struct, section, ...]
+heading:        ["Authentication", "", "Overview", ...]
+heading_level:  ["2", "", "1", ...]
+parent_heading: ["Architecture > Auth", "", "", ...]
+embedding_type: [code, code, docs, ...]
+vector:         [[0.1, 0.2, ...], [0.3, 0.4, ...], ...]
 ```
 
 Benefits:
@@ -167,22 +162,28 @@ func (s *LanceDBStore) Search(queryEmbedding []float64, limit int) ([]map[string
 
 ### Result Format
 
-```go
-[]map[string]interface{}{
-    {
-        "chunk_id":   "uuid-abc-123",
-        "file_path":  "/path/to/file.go",
-        "line_start": 45,
-        "line_end":   67,
-        "language":   "go",
-        "code":       "func Add(a, b int) int { return a + b }",
-        "_distance":  0.123,  // Cosine distance (lower = better)
-    },
-    // ... more results
+```json
+{
+  "chunk_id": "uuid-abc-123",
+  "file_path": "/path/to/file.go",
+  "line_start": 45,
+  "line_end": 67,
+  "language": "go",
+  "code": "func Add(a, b int) int { return a + b }",
+  "chunk_type": "function",
+  "heading": "",
+  "heading_level": "",
+  "parent_heading": "",
+  "embedding_type": "code",
+  "_distance": 0.123
 }
 ```
 
-The `_distance` field is added by LanceDB during search.
+Documentation chunks populate the heading fields and set `embedding_type` to `docs`. `_distance` is still added by LanceDB.
+
+### Schema Migration
+
+Slice 3 adds the chunk metadata columns above. After pulling, delete the existing `.code-scout/code_chunks.lance` directory (or the entire `.code-scout/` folder) and re-run `code-scout index` so the LanceDB table is recreated with the new schema. Older tables without these columns cannot store markdown metadata.
 
 ## Incremental Updates
 

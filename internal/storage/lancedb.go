@@ -67,6 +67,10 @@ func (s *LanceDBStore) getOrCreateSchema() (*arrow.Schema, error) {
 		{Name: "line_end", Type: arrow.PrimitiveTypes.Int32, Nullable: false},
 		{Name: "language", Type: arrow.BinaryTypes.String, Nullable: false},
 		{Name: "code", Type: arrow.BinaryTypes.String, Nullable: false},
+		{Name: "chunk_type", Type: arrow.BinaryTypes.String, Nullable: true},
+		{Name: "heading", Type: arrow.BinaryTypes.String, Nullable: true},
+		{Name: "heading_level", Type: arrow.BinaryTypes.String, Nullable: true},
+		{Name: "parent_heading", Type: arrow.BinaryTypes.String, Nullable: true},
 		{Name: "embedding_type", Type: arrow.BinaryTypes.String, Nullable: false}, // "code" or "docs"
 		{Name: "vector", Type: arrow.FixedSizeListOf(VectorDimension, arrow.PrimitiveTypes.Float32), Nullable: false},
 	}
@@ -180,6 +184,10 @@ func (s *LanceDBStore) StoreChunks(chunks []chunker.Chunk, embeddings [][]float6
 	lineEnds := make([]int32, len(chunks))
 	languages := make([]string, len(chunks))
 	codes := make([]string, len(chunks))
+	chunkTypes := make([]string, len(chunks))
+	headings := make([]string, len(chunks))
+	headingLevels := make([]string, len(chunks))
+	parentHeadings := make([]string, len(chunks))
 	embeddingTypes := make([]string, len(chunks))
 	allVectors := make([]float32, len(chunks)*VectorDimension)
 
@@ -190,6 +198,12 @@ func (s *LanceDBStore) StoreChunks(chunks []chunker.Chunk, embeddings [][]float6
 		lineEnds[i] = int32(chunk.LineEnd)
 		languages[i] = chunk.Language
 		codes[i] = chunk.Code
+		chunkTypes[i] = chunk.ChunkType
+		if chunk.Metadata != nil {
+			headings[i] = chunk.Metadata["heading"]
+			headingLevels[i] = chunk.Metadata["heading_level"]
+			parentHeadings[i] = chunk.Metadata["parent_heading"]
+		}
 		embeddingTypes[i] = chunk.EmbeddingType
 
 		// Convert float64 embeddings to float32 and flatten
@@ -229,6 +243,26 @@ func (s *LanceDBStore) StoreChunks(chunks []chunker.Chunk, embeddings [][]float6
 	codeArray := codeBuilder.NewArray()
 	defer codeArray.Release()
 
+	chunkTypeBuilder := array.NewStringBuilder(pool)
+	chunkTypeBuilder.AppendValues(chunkTypes, nil)
+	chunkTypeArray := chunkTypeBuilder.NewArray()
+	defer chunkTypeArray.Release()
+
+	headingBuilder := array.NewStringBuilder(pool)
+	headingBuilder.AppendValues(headings, nil)
+	headingArray := headingBuilder.NewArray()
+	defer headingArray.Release()
+
+	headingLevelBuilder := array.NewStringBuilder(pool)
+	headingLevelBuilder.AppendValues(headingLevels, nil)
+	headingLevelArray := headingLevelBuilder.NewArray()
+	defer headingLevelArray.Release()
+
+	parentHeadingBuilder := array.NewStringBuilder(pool)
+	parentHeadingBuilder.AppendValues(parentHeadings, nil)
+	parentHeadingArray := parentHeadingBuilder.NewArray()
+	defer parentHeadingArray.Release()
+
 	embeddingTypeBuilder := array.NewStringBuilder(pool)
 	embeddingTypeBuilder.AppendValues(embeddingTypes, nil)
 	embeddingTypeArray := embeddingTypeBuilder.NewArray()
@@ -248,7 +282,20 @@ func (s *LanceDBStore) StoreChunks(chunks []chunker.Chunk, embeddings [][]float6
 	defer vectorArray.Release()
 
 	// Create record and insert
-	columns := []arrow.Array{chunkIDArray, filePathArray, lineStartArray, lineEndArray, languageArray, codeArray, embeddingTypeArray, vectorArray}
+	columns := []arrow.Array{
+		chunkIDArray,
+		filePathArray,
+		lineStartArray,
+		lineEndArray,
+		languageArray,
+		codeArray,
+		chunkTypeArray,
+		headingArray,
+		headingLevelArray,
+		parentHeadingArray,
+		embeddingTypeArray,
+		vectorArray,
+	}
 	record := array.NewRecord(s.schema, columns, int64(len(chunks)))
 	defer record.Release()
 

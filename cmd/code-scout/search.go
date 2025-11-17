@@ -99,7 +99,21 @@ Returns relevant code chunks with file paths, line numbers, and relevance scores
 			for i, result := range results {
 				fmt.Printf("%d. %s:%d-%d (score: %.4f)\n",
 					i+1, result.FilePath, result.LineStart, result.LineEnd, result.Score)
-				fmt.Printf("   Language: %s | Source: %s\n", result.Language, result.EmbeddingType)
+				fmt.Printf("   Language: %s | Source: %s", result.Language, result.EmbeddingType)
+				if result.ChunkType != "" {
+					fmt.Printf(" | Chunk: %s", result.ChunkType)
+				}
+				fmt.Println()
+				if result.Heading != "" {
+					fmt.Printf("   Heading: %s", result.Heading)
+					if result.HeadingLevel != "" {
+						fmt.Printf(" (level %s)", result.HeadingLevel)
+					}
+					if result.ParentHeading != "" {
+						fmt.Printf(" | Parents: %s", result.ParentHeading)
+					}
+					fmt.Println()
+				}
 				// Show first 100 chars of code
 				code := result.Code
 				if len(code) > 100 {
@@ -122,6 +136,10 @@ type SearchResult struct {
 	Code          string  `json:"code"`
 	Score         float64 `json:"score"`
 	EmbeddingType string  `json:"embedding_type"`
+	ChunkType     string  `json:"chunk_type,omitempty"`
+	Heading       string  `json:"heading,omitempty"`
+	HeadingLevel  string  `json:"heading_level,omitempty"`
+	ParentHeading string  `json:"parent_heading,omitempty"`
 }
 
 func resolveSearchMode() (searchMode, error) {
@@ -239,6 +257,10 @@ func formatResults(results []map[string]interface{}) []SearchResult {
 			Code:          getStringOrDefault(r, "code", ""),
 			Score:         getFloat64OrDefault(r, "_distance", 0.0),
 			EmbeddingType: getStringOrDefault(r, "embedding_type", ""),
+			ChunkType:     getStringOrDefault(r, "chunk_type", ""),
+			Heading:       getStringOrDefault(r, "heading", ""),
+			HeadingLevel:  getStringOrDefault(r, "heading_level", ""),
+			ParentHeading: getStringOrDefault(r, "parent_heading", ""),
 		}
 	}
 	return formatted
