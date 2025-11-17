@@ -6,171 +6,152 @@ Code Scout is designed for extensibility. This document describes how to add new
 
 ## Adding New Languages
 
-### Step 1: Add Tree-sitter Grammar
+Code Scout uses Tree-sitter query files (.scm) for language-agnostic semantic chunking. Adding a new language requires three steps:
 
-Add the tree-sitter grammar dependency:
+### Step 1: Add Tree-sitter Grammar Dependency
 
-**go.mod**:
-```go
-require (
-    github.com/tree-sitter/go-tree-sitter v0.25.0
-    github.com/tree-sitter/tree-sitter-rust v0.25.0  // NEW
-)
-```
+Add the tree-sitter grammar to **go.mod**:
 
-Run:
 ```bash
-go get github.com/tree-sitter/tree-sitter-rust@latest
+go get github.com/tree-sitter/tree-sitter-<language>@latest
 go mod tidy
 ```
 
-### Step 2: Create Parser Function
+Example for Rust:
+```bash
+go get github.com/tree-sitter/tree-sitter-rust@latest
+```
 
-**internal/parser/treesitter.go**:
+### Step 2: Update Parser Factory
+
+Add the language to **internal/parser/treesitter.go** in the `NewParser()` function:
+
 ```go
 import tree_sitter_rust "github.com/tree-sitter/tree-sitter-rust/bindings/go"
 
-func NewRustParser() (*Parser, error) {
+func NewParser(lang Language) (*Parser, error) {
     parser := sitter.NewParser()
-    lang := sitter.NewLanguage(tree_sitter_rust.Language())
 
-    if err := parser.SetLanguage(lang); err != nil {
-        return nil, err
-    }
-
-    return &Parser{parser: parser}, nil
-}
-```
-
-### Step 3: Implement Extractor
-
-**internal/parser/extractor.go**:
-```go
-func (e *Extractor) ExtractRustChunks(source []byte, filePath string) ([]Chunk, error) {
-    tree, err := e.parser.Parse(context.Background(), nil, source)
-    if err != nil {
-        return nil, err
-    }
-    defer tree.Close()
-
-    var chunks []Chunk
-    e.walkRustNode(tree.RootNode(), source, &chunks)
-
-    return chunks, nil
-}
-
-func (e *Extractor) walkRustNode(node *sitter.Node, source []byte, chunks *[]Chunk) {
-    switch node.Type() {
-    case "function_item":
-        chunk := e.extractRustFunction(node, source)
-        *chunks = append(*chunks, chunk)
-    case "struct_item":
-        chunk := e.extractRustStruct(node, source)
-        *chunks = append(*chunks, chunk)
-    case "impl_item":
-        chunk := e.extractRustImpl(node, source)
-        *chunks = append(*chunks, chunk)
-    // Add more node types as needed
-    }
-
-    // Recurse to children
-    for i := 0; i < int(node.ChildCount()); i++ {
-        e.walkRustNode(node.Child(i), source, chunks)
-    }
-}
-
-func (e *Extractor) extractRustFunction(node *sitter.Node, source []byte) Chunk {
-    // Similar to Go function extraction
-    // Find: visibility, name, parameters, return type, body
-
-    return Chunk{
-        StartLine: node.StartPoint().Row + 1,
-        EndLine:   node.EndPoint().Row + 1,
-        Content:   getNodeText(node, source),
-        ChunkType: "function",
-        Name:      extractFunctionName(node, source),
-        Metadata: map[string]string{
-            "visibility": extractVisibility(node, source),
-            "params":     extractParams(node, source),
-        },
-    }
-}
-```
-
-### Step 4: Update Semantic Chunker
-
-**internal/chunker/semantic.go**:
-```go
-func (c *SemanticChunker) ChunkFile(filePath, language string) ([]Chunk, error) {
-    source, err := os.ReadFile(filePath)
-    if err != nil {
-        return nil, err
-    }
-
-    switch language {
-    case "go":
-        parser, _ := parser.NewGoParser()
-        extractor := parser.NewExtractor(parser)
-        return extractor.ExtractGoChunks(source, filePath)
-
-    case "python":
-        parser, _ := parser.NewPythonParser()
-        extractor := parser.NewExtractor(parser)
-        return extractor.ExtractPythonChunks(source, filePath)
-
-    case "rust":  // NEW
-        parser, _ := parser.NewRustParser()
-        extractor := parser.NewExtractor(parser)
-        return extractor.ExtractRustChunks(source, filePath)
-
+    var tsLang *sitter.Language
+    switch lang {
+    case LanguageGo:
+        tsLang = sitter.NewLanguage(tree_sitter_go.Language())
+    case LanguageRust:  // NEW
+        tsLang = sitter.NewLanguage(tree_sitter_rust.Language())
+    // ... other languages
     default:
-        // Fallback to basic chunker
-        return c.basicChunker.ChunkFile(filePath, language)
+        return nil, fmt.Errorf("unsupported language: %s", lang.String())
     }
+
+    if err := parser.SetLanguage(tsLang); err != nil {
+        return nil, fmt.Errorf("failed to set language %s: %w", lang.String(), err)
+    }
+
+    return &Parser{parser: parser, language: lang}, nil
 }
 ```
 
-### Step 5: Update Scanner
+Add language constant to **internal/parser/language.go**:
 
-**internal/scanner/scanner.go**:
 ```go
-func detectLanguage(path string) string {
-    ext := filepath.Ext(path)
-    switch ext {
-    case ".go":
-        return "go"
-    case ".py":
-        return "python"
-    case ".rs":  // NEW
+const (
+    LanguageUnknown Language = iota
+    LanguageGo
+    LanguageRust  // NEW
+    // ... other languages
+)
+
+func (l Language) String() string {
+    switch l {
+    case LanguageRust:
         return "rust"
-    case ".js":
-        return "javascript"
-    // ... add more extensions
-    default:
-        return "unknown"
+    // ... other cases
+    }
+}
+
+func DetectLanguage(filePath string, content []byte) Language {
+    ext := strings.ToLower(filepath.Ext(filePath))
+    switch ext {
+    case ".rs":
+        return LanguageRust
+    // ... other cases
     }
 }
 ```
 
-### Step 6: Test
+### Step 3: Create Tree-sitter Query File
 
-Create test file **internal/parser/rust_test.go**:
+Create **internal/parser/queries/rust.scm** that extracts semantic chunks:
+
+```scheme
+; Rust Tree-sitter Query
+; Extracts functions, structs, enums, traits for semantic chunking
+
+; Function definitions
+(function_item
+  name: (identifier) @function.name
+  parameters: (parameters) @function.parameters
+  body: (block) @function.body) @function.definition
+
+; Struct definitions
+(struct_item
+  name: (type_identifier) @struct.name
+  body: (_)? @struct.body) @struct.definition
+
+; Enum definitions
+(enum_item
+  name: (type_identifier) @enum.name
+  body: (enum_variant_list) @enum.body) @enum.definition
+
+; Trait definitions
+(trait_item
+  name: (type_identifier) @trait.name
+  body: (declaration_list) @trait.body) @trait.definition
+
+; Impl blocks
+(impl_item
+  type: (type_identifier) @impl.type
+  body: (declaration_list) @impl.body) @impl.definition
+```
+
+**Query file guidelines:**
+- Capture semantic units: functions, classes, methods, types
+- Use `@name.type` capture names (e.g., `@function.name`, `@class.body`)
+- Include both declarations and definitions
+- Capture parameters, return types, and bodies where applicable
+- Look at existing `.scm` files in `internal/parser/queries/` for examples
+
+### Step 4: Test Your Language Support
+
+Create **internal/parser/rust_test.go**:
+
 ```go
-func TestExtractRustFunction(t *testing.T) {
+func TestRustParser(t *testing.T) {
     source := []byte(`
 fn add(a: i32, b: i32) -> i32 {
     a + b
 }
+
+struct Point {
+    x: f64,
+    y: f64,
+}
     `)
 
-    parser, _ := parser.NewRustParser()
-    extractor := parser.NewExtractor(parser)
-    chunks, err := extractor.ExtractRustChunks(source, "test.rs")
+    parser, err := NewParser(LanguageRust)
+    require.NoError(t, err)
 
-    assert.NoError(t, err)
-    assert.Len(t, chunks, 1)
-    assert.Equal(t, "function", chunks[0].ChunkType)
-    assert.Equal(t, "add", chunks[0].Name)
+    extractor := NewExtractor(parser, source)
+    chunks, err := extractor.ExtractFunctions(context.Background())
+
+    require.NoError(t, err)
+    assert.GreaterOrEqual(t, len(chunks), 1)
+
+    // Verify function extraction
+    funcChunk := findChunkByName(chunks, "add")
+    assert.NotNil(t, funcChunk)
+    assert.Equal(t, ChunkTypeFunction, funcChunk.Type)
+    assert.Contains(t, funcChunk.Content, "fn add")
 }
 ```
 
@@ -178,6 +159,68 @@ Run tests:
 ```bash
 go test ./internal/parser/...
 ```
+
+### Understanding Tree-sitter Query Syntax
+
+Tree-sitter queries use S-expressions to match AST patterns:
+
+**Basic pattern matching:**
+```scheme
+; Match any function
+(function_item) @function
+
+; Match function with specific field
+(function_item
+  name: (identifier) @function.name)
+
+; Match nested patterns
+(class_definition
+  body: (block
+    (function_definition
+      name: (identifier) @method.name)))
+```
+
+**Predicates:**
+```scheme
+; Only match functions named "main"
+(function_item
+  name: (identifier) @name
+  (#match? @name "^main$"))
+
+; Only match public functions
+(function_item
+  (visibility_modifier) @vis
+  (#eq? @vis "pub"))
+```
+
+**Finding node names:**
+
+Use the Tree-sitter playground or inspect the grammar:
+```bash
+# Install tree-sitter CLI
+npm install -g tree-sitter-cli
+
+# Parse a file and see AST node names
+tree-sitter parse examples/test.rs
+```
+
+Or use the online playground: https://tree-sitter.github.io/tree-sitter/playground
+
+### Currently Supported Languages
+
+Code Scout currently has query files for:
+- Go (`.go`)
+- Python (`.py`)
+- JavaScript/TypeScript (`.js`, `.jsx`, `.ts`, `.tsx`)
+- Java (`.java`)
+- Rust (`.rs`)
+- C (`.c`, `.h`)
+- C++ (`.cpp`, `.cc`, `.cxx`, `.hpp`, `.hxx`, `.h`)
+- Ruby (`.rb`)
+- PHP (`.php`)
+- Scala (`.scala`)
+
+Each has a corresponding `.scm` file in `internal/parser/queries/` that you can use as a reference.
 
 ## Changing Embedding Model
 
