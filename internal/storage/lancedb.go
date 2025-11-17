@@ -274,19 +274,32 @@ func (s *LanceDBStore) OpenTable() error {
 }
 
 // Search performs vector similarity search
-func (s *LanceDBStore) Search(queryVector []float64, limit int) ([]map[string]interface{}, error) {
+func (s *LanceDBStore) Search(queryVector []float64, limit int, filter string) ([]map[string]interface{}, error) {
 	if s.table == nil {
 		return nil, fmt.Errorf("table not initialized; call StoreChunks first")
 	}
 
-	// Convert float64 query vector to float32
-	queryVectorFloat32 := make([]float32, len(queryVector))
-	for i, v := range queryVector {
-		queryVectorFloat32[i] = float32(v)
+	// Convert float64 query vector to fixed-size float32 slice with padding
+	queryVectorFloat32 := make([]float32, VectorDimension)
+	for i := 0; i < VectorDimension; i++ {
+		if i < len(queryVector) {
+			queryVectorFloat32[i] = float32(queryVector[i])
+		} else {
+			queryVectorFloat32[i] = 0
+		}
 	}
 
 	ctx := context.Background()
-	results, err := s.table.VectorSearch(ctx, "vector", queryVectorFloat32, limit)
+	var (
+		results []map[string]interface{}
+		err     error
+	)
+
+	if filter != "" {
+		results, err = s.table.VectorSearchWithFilter(ctx, "vector", queryVectorFloat32, limit, filter)
+	} else {
+		results, err = s.table.VectorSearch(ctx, "vector", queryVectorFloat32, limit)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to search: %w", err)
 	}

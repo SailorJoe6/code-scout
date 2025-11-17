@@ -14,6 +14,17 @@ import (
 var (
 	jsonOutput bool
 	limitFlag  int
+	codeMode   bool
+	docsMode   bool
+	hybridMode bool
+)
+
+type searchMode string
+
+const (
+	modeCode   searchMode = "code"
+	modeDocs   searchMode = "docs"
+	modeHybrid searchMode = "hybrid"
 )
 
 var searchCmd = &cobra.Command{
@@ -24,6 +35,11 @@ Returns relevant code chunks with file paths, line numbers, and relevance scores
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		query := args[0]
+
+		mode, err := resolveSearchMode()
+		if err != nil {
+			return err
+		}
 
 		// Get current working directory
 		cwd, err := os.Getwd()
@@ -43,44 +59,47 @@ Returns relevant code chunks with file paths, line numbers, and relevance scores
 			return fmt.Errorf("failed to open table: %w (have you run 'code-scout index' first?)", err)
 		}
 
-		// Generate query embedding
-		embedClient := embeddings.NewOllamaClient()
-		queryEmbedding, err := embedClient.Embed(query)
+		var (
+			results      []SearchResult
+			totalMatches int
+		)
+
+		switch mode {
+		case modeHybrid:
+			results, totalMatches, err = runHybridSearch(store, query, limitFlag)
+		default:
+			results, totalMatches, err = runSingleModeSearch(store, query, limitFlag, mode)
+		}
 		if err != nil {
-			return fmt.Errorf("failed to generate query embedding: %w", err)
+			return err
 		}
 
-		// Search for similar vectors
-		results, err := store.Search(queryEmbedding, limitFlag)
-		if err != nil {
-			return fmt.Errorf("failed to search: %w", err)
+		if len(results) > limitFlag && limitFlag > 0 {
+			results = results[:limitFlag]
 		}
-
-		// Format and deduplicate results
-		formatted := formatResults(results)
-		deduplicated := deduplicateResults(formatted)
 
 		// Format output
 		output := map[string]interface{}{
 			"query":         query,
-			"mode":          "code",
-			"total_results": len(results),
-			"returned":      len(deduplicated),
-			"results":       deduplicated,
+			"mode":          string(mode),
+			"total_results": totalMatches,
+			"returned":      len(results),
+			"results":       results,
 		}
 
 		if jsonOutput {
-			jsonOutput, err := json.MarshalIndent(output, "", "  ")
+			jsonBytes, err := json.MarshalIndent(output, "", "  ")
 			if err != nil {
 				return fmt.Errorf("failed to marshal JSON: %w", err)
 			}
-			fmt.Println(string(jsonOutput))
+			fmt.Println(string(jsonBytes))
 		} else {
-			// Human-readable output
-			fmt.Printf("Found %d unique results (from %d total) for: %s\n\n", len(deduplicated), len(results), query)
-			for i, result := range deduplicated {
-				fmt.Printf("%d. %s:%d-%d (score: %.4f)\n", i+1, result.FilePath, result.LineStart, result.LineEnd, result.Score)
-				fmt.Printf("   Language: %s\n", result.Language)
+			fmt.Printf("Found %d unique %s results (from %d total) for: %s\n\n",
+				len(results), string(mode), totalMatches, query)
+			for i, result := range results {
+				fmt.Printf("%d. %s:%d-%d (score: %.4f)\n",
+					i+1, result.FilePath, result.LineStart, result.LineEnd, result.Score)
+				fmt.Printf("   Language: %s | Source: %s\n", result.Language, result.EmbeddingType)
 				// Show first 100 chars of code
 				code := result.Code
 				if len(code) > 100 {
@@ -95,26 +114,131 @@ Returns relevant code chunks with file paths, line numbers, and relevance scores
 }
 
 type SearchResult struct {
-	ChunkID   string  `json:"chunk_id"`
-	FilePath  string  `json:"file_path"`
-	LineStart int     `json:"line_start"`
-	LineEnd   int     `json:"line_end"`
-	Language  string  `json:"language"`
-	Code      string  `json:"code"`
-	Score     float64 `json:"score"`
+	ChunkID       string  `json:"chunk_id"`
+	FilePath      string  `json:"file_path"`
+	LineStart     int     `json:"line_start"`
+	LineEnd       int     `json:"line_end"`
+	Language      string  `json:"language"`
+	Code          string  `json:"code"`
+	Score         float64 `json:"score"`
+	EmbeddingType string  `json:"embedding_type"`
+}
+
+func resolveSearchMode() (searchMode, error) {
+	selectionCount := 0
+	var selected searchMode
+
+	if codeMode {
+		selectionCount++
+		selected = modeCode
+	}
+	if docsMode {
+		selectionCount++
+		selected = modeDocs
+	}
+	if hybridMode {
+		selectionCount++
+		selected = modeHybrid
+	}
+
+	if selectionCount > 1 {
+		return "", fmt.Errorf("flags --code, --docs, and --hybrid are mutually exclusive")
+	}
+	if selectionCount == 0 {
+		return modeHybrid, nil
+	}
+	return selected, nil
+}
+
+func runSingleModeSearch(store *storage.LanceDBStore, query string, limit int, mode searchMode) ([]SearchResult, int, error) {
+	if limit <= 0 {
+		limit = 10
+	}
+
+	queryEmbedding, err := embedQueryForMode(query, mode)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	filter := filterForMode(mode)
+	rawResults, err := store.Search(queryEmbedding, limit, filter)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to search %s embeddings: %w", mode, err)
+	}
+
+	deduplicated := deduplicateResults(formatResults(rawResults))
+	return deduplicated, len(rawResults), nil
+}
+
+func runHybridSearch(store *storage.LanceDBStore, query string, limit int) ([]SearchResult, int, error) {
+	if limit <= 0 {
+		limit = 10
+	}
+
+	codeEmbedding, err := embedQueryForMode(query, modeCode)
+	if err != nil {
+		return nil, 0, err
+	}
+	docsEmbedding, err := embedQueryForMode(query, modeDocs)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	codeResults, err := store.Search(codeEmbedding, limit, filterForMode(modeCode))
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to search code embeddings: %w", err)
+	}
+
+	docsResults, err := store.Search(docsEmbedding, limit, filterForMode(modeDocs))
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to search documentation embeddings: %w", err)
+	}
+
+	formatted := append(formatResults(codeResults), formatResults(docsResults)...)
+	deduplicated := deduplicateResults(formatted)
+
+	return deduplicated, len(codeResults) + len(docsResults), nil
+}
+
+func embedQueryForMode(query string, mode searchMode) ([]float64, error) {
+	var client *embeddings.OllamaClient
+	switch mode {
+	case modeDocs:
+		client = embeddings.NewOllamaClientWithModel(embeddings.DefaultTextModel)
+	default:
+		client = embeddings.NewOllamaClient()
+	}
+
+	embedding, err := client.Embed(query)
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate %s query embedding: %w", mode, err)
+	}
+	return embedding, nil
+}
+
+func filterForMode(mode searchMode) string {
+	switch mode {
+	case modeCode:
+		return "embedding_type = 'code'"
+	case modeDocs:
+		return "embedding_type = 'docs'"
+	default:
+		return ""
+	}
 }
 
 func formatResults(results []map[string]interface{}) []SearchResult {
 	formatted := make([]SearchResult, len(results))
 	for i, r := range results {
 		formatted[i] = SearchResult{
-			ChunkID:   getStringOrDefault(r, "chunk_id", ""),
-			FilePath:  getStringOrDefault(r, "file_path", ""),
-			LineStart: getIntOrDefault(r, "line_start", 0),
-			LineEnd:   getIntOrDefault(r, "line_end", 0),
-			Language:  getStringOrDefault(r, "language", ""),
-			Code:      getStringOrDefault(r, "code", ""),
-			Score:     getFloat64OrDefault(r, "_distance", 0.0),
+			ChunkID:       getStringOrDefault(r, "chunk_id", ""),
+			FilePath:      getStringOrDefault(r, "file_path", ""),
+			LineStart:     getIntOrDefault(r, "line_start", 0),
+			LineEnd:       getIntOrDefault(r, "line_end", 0),
+			Language:      getStringOrDefault(r, "language", ""),
+			Code:          getStringOrDefault(r, "code", ""),
+			Score:         getFloat64OrDefault(r, "_distance", 0.0),
+			EmbeddingType: getStringOrDefault(r, "embedding_type", ""),
 		}
 	}
 	return formatted
@@ -199,6 +323,9 @@ func getFloat64OrDefault(m map[string]interface{}, key string, defaultVal float6
 }
 
 func init() {
+	searchCmd.Flags().BoolVarP(&codeMode, "code", "c", false, "Search code embeddings only")
+	searchCmd.Flags().BoolVarP(&docsMode, "docs", "d", false, "Search documentation embeddings only")
+	searchCmd.Flags().BoolVar(&hybridMode, "hybrid", false, "Search both code and documentation embeddings (default)")
 	searchCmd.Flags().BoolVar(&jsonOutput, "json", false, "Output results as JSON")
 	searchCmd.Flags().IntVar(&limitFlag, "limit", 10, "Maximum number of results to return")
 	rootCmd.AddCommand(searchCmd)

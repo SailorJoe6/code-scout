@@ -30,3 +30,6 @@ include/
 
 # Build artifacts
 dist/
+
+# Local Go build cache when tests run with custom GOCACHE path
+.gocache/
