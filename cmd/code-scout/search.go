@@ -219,12 +219,12 @@ func runHybridSearch(store *storage.LanceDBStore, query string, limit int) ([]Se
 }
 
 func embedQueryForMode(query string, mode searchMode) ([]float64, error) {
-	var client *embeddings.OllamaClient
+	var client embeddings.Client
 	switch mode {
 	case modeDocs:
-		client = embeddings.NewOllamaClientWithModel(embeddings.DefaultTextModel)
+		client = newDocsEmbeddingClient()
 	default:
-		client = embeddings.NewOllamaClient()
+		client = newCodeEmbeddingClient()
 	}
 
 	embedding, err := client.Embed(query)

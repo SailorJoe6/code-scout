@@ -19,6 +19,12 @@ const (
 )
 
 // OllamaClient handles communication with Ollama API using OpenAI-compatible format
+type Client interface {
+	Embed(text string) ([]float64, error)
+	EmbedMany(texts []string) ([][]float64, error)
+}
+
+// OllamaClient handles communication with Ollama API using OpenAI-compatible format
 type OllamaClient struct {
 	endpoint string
 	model    string

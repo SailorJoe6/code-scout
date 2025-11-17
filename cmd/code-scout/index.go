@@ -168,7 +168,7 @@ and store them in a local LanceDB vector database (.code-scout/).`,
 		// PASS 1: Code chunks with code-scout-code model
 		if len(codeChunks) > 0 {
 			fmt.Println("\nPass 1: Generating code embeddings...")
-			codeClient := embeddings.NewOllamaClient() // Uses DefaultCodeModel
+			codeClient := newCodeEmbeddingClient()
 
 			codeEmbeddings, err := generateEmbeddingsWithDedup(codeClient, codeChunks, workers, embeddingBatchSize)
 			if err != nil {
@@ -184,7 +184,7 @@ and store them in a local LanceDB vector database (.code-scout/).`,
 		// PASS 2: Docs chunks with code-scout-text model
 		if len(docsChunks) > 0 {
 			fmt.Println("\nPass 2: Generating documentation embeddings...")
-			textClient := embeddings.NewOllamaClientWithModel(embeddings.DefaultTextModel)
+			textClient := newDocsEmbeddingClient()
 
 			docsEmbeddings, err := generateEmbeddingsWithDedup(textClient, docsChunks, workers, embeddingBatchSize)
 			if err != nil {
@@ -233,7 +233,7 @@ and store them in a local LanceDB vector database (.code-scout/).`,
 }
 
 // generateEmbeddingsWithDedup generates embeddings for chunks with content deduplication
-func generateEmbeddingsWithDedup(client *embeddings.OllamaClient, chunks []chunker.Chunk, numWorkers, batchSize int) ([][]float64, error) {
+func generateEmbeddingsWithDedup(client embeddings.Client, chunks []chunker.Chunk, numWorkers, batchSize int) ([][]float64, error) {
 	if len(chunks) == 0 {
 		return nil, nil
 	}
