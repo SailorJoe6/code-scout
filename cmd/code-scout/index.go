@@ -16,7 +16,8 @@ import (
 )
 
 var (
-	workers int
+	workers            int
+	embeddingBatchSize int
 )
 
 // computeContentHash generates a SHA256 hash of the content
@@ -169,7 +170,7 @@ and store them in a local LanceDB vector database (.code-scout/).`,
 			fmt.Println("\nPass 1: Generating code embeddings...")
 			codeClient := embeddings.NewOllamaClient() // Uses DefaultCodeModel
 
-			codeEmbeddings, err := generateEmbeddingsWithDedup(codeClient, codeChunks, workers)
+			codeEmbeddings, err := generateEmbeddingsWithDedup(codeClient, codeChunks, workers, embeddingBatchSize)
 			if err != nil {
 				return fmt.Errorf("failed to generate code embeddings: %w", err)
 			}
@@ -185,7 +186,7 @@ and store them in a local LanceDB vector database (.code-scout/).`,
 			fmt.Println("\nPass 2: Generating documentation embeddings...")
 			textClient := embeddings.NewOllamaClientWithModel(embeddings.DefaultTextModel)
 
-			docsEmbeddings, err := generateEmbeddingsWithDedup(textClient, docsChunks, workers)
+			docsEmbeddings, err := generateEmbeddingsWithDedup(textClient, docsChunks, workers, embeddingBatchSize)
 			if err != nil {
 				return fmt.Errorf("failed to generate docs embeddings: %w", err)
 			}
@@ -232,7 +233,7 @@ and store them in a local LanceDB vector database (.code-scout/).`,
 }
 
 // generateEmbeddingsWithDedup generates embeddings for chunks with content deduplication
-func generateEmbeddingsWithDedup(client *embeddings.OllamaClient, chunks []chunker.Chunk, numWorkers int) ([][]float64, error) {
+func generateEmbeddingsWithDedup(client *embeddings.OllamaClient, chunks []chunker.Chunk, numWorkers, batchSize int) ([][]float64, error) {
 	if len(chunks) == 0 {
 		return nil, nil
 	}
@@ -240,6 +241,9 @@ func generateEmbeddingsWithDedup(client *embeddings.OllamaClient, chunks []chunk
 	// Set default workers
 	if numWorkers <= 0 {
 		numWorkers = 10
+	}
+	if batchSize <= 0 {
+		batchSize = 1
 	}
 
 	// Compute content hashes for deduplication
@@ -278,24 +282,46 @@ func generateEmbeddingsWithDedup(client *embeddings.OllamaClient, chunks []chunk
 		err       error
 	}
 
-	// Create jobs for unique chunks only
 	jobs := make(chan job, uniqueCount)
 	results := make(chan result, uniqueCount)
 
-	// Start worker pool
 	var wg sync.WaitGroup
 	for w := 0; w < numWorkers; w++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
+			buffer := make([]job, 0, batchSize)
+			flush := func() bool {
+				if len(buffer) == 0 {
+					return true
+				}
+				texts := make([]string, len(buffer))
+				for i, jb := range buffer {
+					texts[i] = jb.text
+				}
+				embeddings, err := client.EmbedMany(texts)
+				if err != nil {
+					for _, jb := range buffer {
+						results <- result{index: jb.index, err: err}
+					}
+					return false
+				}
+				for i, emb := range embeddings {
+					results <- result{index: buffer[i].index, embedding: emb}
+				}
+				buffer = buffer[:0]
+				return true
+			}
+
 			for j := range jobs {
-				embedding, err := client.Embed(j.text)
-				results <- result{
-					index:     j.index,
-					embedding: embedding,
-					err:       err,
+				buffer = append(buffer, j)
+				if len(buffer) >= batchSize {
+					if ok := flush(); !ok {
+						return
+					}
 				}
 			}
+			flush()
 		}()
 	}
 
@@ -314,17 +340,28 @@ func generateEmbeddingsWithDedup(client *embeddings.OllamaClient, chunks []chunk
 		close(results)
 	}()
 
-	// Collect results
+	var firstErr error
 	completed := 0
 	for r := range results {
-		if r.err != nil {
-			return nil, fmt.Errorf("failed to generate embedding: %w", r.err)
+		if r.err != nil && firstErr == nil {
+			firstErr = r.err
 		}
-		allEmbeddings[r.index] = r.embedding
+		if r.embedding != nil {
+			allEmbeddings[r.index] = r.embedding
+		}
 		completed++
-		if completed == 1 || completed%50 == 0 || completed == uniqueCount {
-			fmt.Printf("  Generated %d/%d unique embeddings (dim: %d)\n", completed, uniqueCount, len(r.embedding))
+		if r.embedding != nil {
+			if completed == 1 || completed%50 == 0 || completed == uniqueCount {
+				fmt.Printf("  Generated %d/%d unique embeddings (dim: %d)\n", completed, uniqueCount, len(r.embedding))
+			}
 		}
+		if completed == uniqueCount {
+			break
+		}
+	}
+
+	if firstErr != nil {
+		return nil, fmt.Errorf("failed to generate embeddings: %w", firstErr)
 	}
 
 	// Copy embeddings to duplicate chunks
@@ -344,4 +381,5 @@ func generateEmbeddingsWithDedup(client *embeddings.OllamaClient, chunks []chunk
 func init() {
 	rootCmd.AddCommand(indexCmd)
 	indexCmd.Flags().IntVarP(&workers, "workers", "w", 10, "Number of concurrent workers for embedding generation (default: 10)")
+	indexCmd.Flags().IntVar(&embeddingBatchSize, "batch-size", 8, "Number of chunks per embedding request (default: 8)")
 }
