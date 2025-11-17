@@ -11,19 +11,12 @@ import (
 
 // SemanticChunker uses Tree-sitter for code and header-based chunking for docs
 type SemanticChunker struct {
-	parser          *parser.Parser
 	markdownChunker *MarkdownChunker
 }
 
 // NewSemantic creates a new semantic chunker
 func NewSemantic() (*SemanticChunker, error) {
-	p, err := parser.NewGoParser()
-	if err != nil {
-		return nil, fmt.Errorf("failed to create parser: %w", err)
-	}
-
 	return &SemanticChunker{
-		parser:          p,
 		markdownChunker: NewMarkdownChunker(),
 	}, nil
 }
@@ -38,7 +31,7 @@ func (s *SemanticChunker) ChunkFile(filePath, language string) ([]Chunk, error) 
 	case "markdown", "text", "rst":
 		// Documentation files - use markdown chunker
 		chunks, err = s.chunkDocumentation(filePath, language)
-	case "go", "python":
+	case "go", "python", "javascript", "typescript", "java", "rust", "c", "cpp", "ruby", "php", "scala":
 		// Code files - use tree-sitter
 		chunks, err = s.chunkCode(filePath, language)
 	default:
@@ -92,30 +85,28 @@ func (s *SemanticChunker) chunkDocumentation(filePath, language string) ([]Chunk
 	return chunks, nil
 }
 
-// chunkCode handles Go and Python files with tree-sitter
+// chunkCode handles code files with tree-sitter for all supported languages
 func (s *SemanticChunker) chunkCode(filePath, language string) ([]Chunk, error) {
-	// For unsupported languages, fall back to basic blank-line chunking
-	if language != "go" {
-		basicChunker := New()
-		chunks, err := basicChunker.ChunkFile(filePath, language)
-		if err != nil {
-			return nil, err
-		}
-		// Set embedding type to "code" for all chunks
-		for i := range chunks {
-			chunks[i].EmbeddingType = "code"
-		}
-		return chunks, nil
-	}
-
 	// Read the source file
 	sourceCode, err := os.ReadFile(filePath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read file: %w", err)
 	}
 
+	// Detect language from file path and content
+	lang := parser.DetectLanguage(filePath, sourceCode)
+	if lang == parser.LanguageUnknown {
+		return nil, fmt.Errorf("could not detect language for file: %s", filePath)
+	}
+
+	// Create parser for the detected language
+	p, err := parser.NewParser(lang)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create parser for %s: %w", lang.String(), err)
+	}
+
 	// Extract semantic chunks using Tree-sitter
-	extractor := parser.NewExtractor(s.parser, sourceCode)
+	extractor := parser.NewExtractor(p, sourceCode)
 	parserChunks, err := extractor.ExtractFunctions(context.Background())
 	if err != nil {
 		return nil, fmt.Errorf("failed to extract chunks: %w", err)

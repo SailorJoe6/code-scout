@@ -63,7 +63,7 @@ func (e *Extractor) walkNode(node *sitter.Node, chunks *[]*Chunk) {
 
 	nodeKind := node.Kind()
 
-	// Extract function declarations
+	// Go-specific nodes
 	if nodeKind == "function_declaration" {
 		chunk := e.extractFunction(node)
 		if chunk != nil {
@@ -71,7 +71,6 @@ func (e *Extractor) walkNode(node *sitter.Node, chunks *[]*Chunk) {
 		}
 	}
 
-	// Extract method declarations
 	if nodeKind == "method_declaration" {
 		chunk := e.extractMethod(node)
 		if chunk != nil {
@@ -79,10 +78,91 @@ func (e *Extractor) walkNode(node *sitter.Node, chunks *[]*Chunk) {
 		}
 	}
 
-	// Extract type declarations (struct, interface, etc.)
 	if nodeKind == "type_declaration" {
 		typeChunks := e.extractTypes(node)
 		*chunks = append(*chunks, typeChunks...)
+	}
+
+	// Python-specific nodes
+	if nodeKind == "function_definition" || nodeKind == "class_definition" {
+		chunk := e.extractGenericNode(node, nodeKind)
+		if chunk != nil {
+			*chunks = append(*chunks, chunk)
+		}
+	}
+
+	// JavaScript/TypeScript nodes
+	if nodeKind == "function" || nodeKind == "arrow_function" ||
+	   nodeKind == "class_declaration" || nodeKind == "method_definition" {
+		chunk := e.extractGenericNode(node, nodeKind)
+		if chunk != nil {
+			*chunks = append(*chunks, chunk)
+		}
+	}
+
+	// Java nodes
+	if nodeKind == "class_declaration" || nodeKind == "interface_declaration" ||
+	   nodeKind == "method_declaration" || nodeKind == "constructor_declaration" {
+		// Only process if not already handled by Go
+		if e.parser.Language() != LanguageGo {
+			chunk := e.extractGenericNode(node, nodeKind)
+			if chunk != nil {
+				*chunks = append(*chunks, chunk)
+			}
+		}
+	}
+
+	// Rust nodes
+	if nodeKind == "function_item" || nodeKind == "struct_item" ||
+	   nodeKind == "enum_item" || nodeKind == "trait_item" || nodeKind == "impl_item" {
+		chunk := e.extractGenericNode(node, nodeKind)
+		if chunk != nil {
+			*chunks = append(*chunks, chunk)
+		}
+	}
+
+	// C/C++ nodes
+	if nodeKind == "function_definition" || nodeKind == "class_specifier" ||
+	   nodeKind == "struct_specifier" || nodeKind == "enum_specifier" {
+		// Avoid duplicates with Python
+		if e.parser.Language() == LanguageC || e.parser.Language() == LanguageCPP {
+			chunk := e.extractGenericNode(node, nodeKind)
+			if chunk != nil {
+				*chunks = append(*chunks, chunk)
+			}
+		}
+	}
+
+	// Ruby nodes
+	if nodeKind == "method" || nodeKind == "class" || nodeKind == "module" {
+		chunk := e.extractGenericNode(node, nodeKind)
+		if chunk != nil {
+			*chunks = append(*chunks, chunk)
+		}
+	}
+
+	// PHP nodes
+	if nodeKind == "function_definition" || nodeKind == "class_declaration" ||
+	   nodeKind == "interface_declaration" || nodeKind == "trait_declaration" {
+		// Only process for PHP
+		if e.parser.Language() == LanguagePHP {
+			chunk := e.extractGenericNode(node, nodeKind)
+			if chunk != nil {
+				*chunks = append(*chunks, chunk)
+			}
+		}
+	}
+
+	// Scala nodes
+	if nodeKind == "function_definition" || nodeKind == "class_definition" ||
+	   nodeKind == "object_definition" || nodeKind == "trait_definition" {
+		// Only process for Scala
+		if e.parser.Language() == LanguageScala {
+			chunk := e.extractGenericNode(node, nodeKind)
+			if chunk != nil {
+				*chunks = append(*chunks, chunk)
+			}
+		}
 	}
 
 	// Recursively walk children
@@ -572,4 +652,81 @@ func (e *Extractor) findDocComment(node *sitter.Node) string {
 	}
 
 	return ""
+}
+
+// extractGenericNode extracts a generic node for non-Go languages
+// This is a simplified extractor that works across different languages
+func (e *Extractor) extractGenericNode(node *sitter.Node, nodeKind string) *Chunk {
+	if node == nil {
+		return nil
+	}
+
+	// Try to extract name from common field names
+	var name string
+	nameNode := node.ChildByFieldName("name")
+	if nameNode != nil {
+		name = nameNode.Utf8Text(e.sourceCode)
+	}
+
+	// If no name field, try to find identifier in first few children
+	if name == "" {
+		for i := uint(0); i < node.ChildCount() && i < 5; i++ {
+			child := node.Child(i)
+			if child != nil && child.Kind() == "identifier" {
+				name = child.Utf8Text(e.sourceCode)
+				break
+			}
+		}
+	}
+
+	// Get the full node text
+	startByte := node.StartByte()
+	endByte := node.EndByte()
+	content := string(e.sourceCode[startByte:endByte])
+
+	// Calculate line numbers (1-indexed)
+	startLine := int(node.StartPosition().Row) + 1
+	endLine := int(node.EndPosition().Row) + 1
+
+	// Map node kind to chunk type
+	chunkType := e.mapNodeKindToChunkType(nodeKind)
+
+	return &Chunk{
+		Type:       chunkType,
+		Name:       name,
+		Content:    content,
+		StartLine:  startLine,
+		EndLine:    endLine,
+		StartByte:  int(startByte),
+		EndByte:    int(endByte),
+		Metadata:   make(map[string]string),
+	}
+}
+
+// mapNodeKindToChunkType maps Tree-sitter node kinds to chunk types
+func (e *Extractor) mapNodeKindToChunkType(nodeKind string) ChunkType {
+	switch nodeKind {
+	case "function_definition", "function_declaration", "function_item", "function":
+		return ChunkTypeFunction
+	case "method_declaration", "method_definition", "method":
+		return ChunkTypeMethod
+	case "class_definition", "class_declaration", "class_specifier", "class":
+		return ChunkTypeClass
+	case "struct_item", "struct_specifier":
+		return ChunkTypeStruct
+	case "enum_item", "enum_specifier", "enum_declaration":
+		return ChunkTypeEnum
+	case "interface_declaration", "trait_item", "trait_declaration":
+		return ChunkTypeInterface
+	case "impl_item":
+		return ChunkTypeImpl
+	case "module", "namespace_definition":
+		return ChunkTypeModule
+	case "arrow_function":
+		return ChunkTypeFunction
+	case "object_definition":
+		return ChunkTypeClass // Scala objects are similar to classes
+	default:
+		return ChunkTypeFunction // Default fallback
+	}
 }

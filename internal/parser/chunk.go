@@ -10,6 +10,10 @@ const (
 	ChunkTypeInterface ChunkType = "interface"
 	ChunkTypeConst     ChunkType = "const"
 	ChunkTypeVar       ChunkType = "var"
+	ChunkTypeClass     ChunkType = "class"
+	ChunkTypeEnum      ChunkType = "enum"
+	ChunkTypeImpl      ChunkType = "impl"
+	ChunkTypeModule    ChunkType = "module"
 )
 
 // Chunk represents a semantic code chunk extracted from source code

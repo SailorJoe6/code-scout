@@ -164,11 +164,24 @@ func Parse(ctx context.Context, input string) error {
 	}
 }
 
-func TestSemanticChunkerNonGoFile(t *testing.T) {
+func TestSemanticChunkerPythonFile(t *testing.T) {
 	tmpDir := t.TempDir()
 	testFile := filepath.Join(tmpDir, "test.py")
 
-	err := os.WriteFile(testFile, []byte("print('hello')"), 0644)
+	pythonCode := `def greet(name):
+    """Greet someone by name."""
+    return f"Hello, {name}!"
+
+class Person:
+    """A person class."""
+    def __init__(self, name):
+        self.name = name
+
+    def say_hello(self):
+        return greet(self.name)
+`
+
+	err := os.WriteFile(testFile, []byte(pythonCode), 0644)
 	if err != nil {
 		t.Fatalf("Failed to write test file: %v", err)
 	}
@@ -178,9 +191,23 @@ func TestSemanticChunkerNonGoFile(t *testing.T) {
 		t.Fatalf("Failed to create semantic chunker: %v", err)
 	}
 
-	_, err = chunker.ChunkFile(testFile, "python")
-	if err == nil {
-		t.Fatal("Expected error for non-Go file, got nil")
+	chunks, err := chunker.ChunkFile(testFile, "python")
+	if err != nil {
+		t.Fatalf("Expected Python support, got error: %v", err)
+	}
+
+	if len(chunks) == 0 {
+		t.Fatal("Expected at least one chunk for Python file")
+	}
+
+	// Verify chunks have correct language
+	for _, chunk := range chunks {
+		if chunk.Language != "python" {
+			t.Errorf("Expected language 'python', got '%s'", chunk.Language)
+		}
+		if chunk.EmbeddingType != "code" {
+			t.Errorf("Expected embedding_type 'code', got '%s'", chunk.EmbeddingType)
+		}
 	}
 }
 
