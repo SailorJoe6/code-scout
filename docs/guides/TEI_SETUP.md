@@ -20,7 +20,13 @@ This guide covers setting up HuggingFace Text Embeddings Inference (TEI) for Cod
 
 ## Installation
 
-### Option 1: Homebrew (Mac - Recommended)
+Choose your installation method based on your platform and hardware:
+
+### macOS (Apple Silicon: M1/M2/M3/M4)
+
+**TEI has native Apple Metal acceleration** - no Docker required!
+
+#### Option 1: Homebrew (Recommended)
 
 ```bash
 # Install TEI via Homebrew
@@ -30,64 +36,143 @@ brew install huggingface/tap/text-embeddings-inference
 text-embeddings-router --version
 ```
 
-**Advantages:** Simple, automatic updates via `brew upgrade`, no build required.
+**This installs:**
+- TEI binary with Metal backend
+- PyTorch built against Metal
+- All runtime dependencies
 
-### Option 2: Pre-built Binaries (All Platforms)
+**Why this is best for Mac:**
+- ✅ Fastest and cleanest installation
+- ✅ Native Metal GPU acceleration
+- ✅ Automatic updates via `brew upgrade`
+- ✅ No Docker overhead
+- ✅ Model switching: **2-5 seconds**
 
-Download the appropriate binary for your platform:
+#### Option 2: Pre-built Binary
 
 ```bash
-# macOS (Apple Silicon)
+# Download for Apple Silicon
 curl -LO https://github.com/huggingface/text-embeddings-inference/releases/latest/download/text-embeddings-router-aarch64-apple-darwin
 chmod +x text-embeddings-router-aarch64-apple-darwin
 sudo mv text-embeddings-router-aarch64-apple-darwin /usr/local/bin/text-embeddings-router
 
-# macOS (Intel)
-curl -LO https://github.com/huggingface/text-embeddings-inference/releases/latest/download/text-embeddings-router-x86_64-apple-darwin
-chmod +x text-embeddings-router-x86_64-apple-darwin
-sudo mv text-embeddings-router-x86_64-apple-darwin /usr/local/bin/text-embeddings-router
-
-# Linux (x86_64)
-curl -LO https://github.com/huggingface/text-embeddings-inference/releases/latest/download/text-embeddings-router-x86_64-unknown-linux-gnu
-chmod +x text-embeddings-router-x86_64-unknown-linux-gnu
-sudo mv text-embeddings-router-x86_64-unknown-linux-gnu /usr/local/bin/text-embeddings-router
+# Verify
+text-embeddings-router --version
 ```
 
-### Option 3: Docker (All Platforms)
+#### Example Usage
 
 ```bash
-# Pull the official Docker image
+text-embeddings-router \
+  --model-id nomic-ai/nomic-embed-text-v1.5 \
+  --port 8080 \
+  --max-batch-tokens 2048
+```
+
+**Notes for Mac:**
+- Run **one model at a time** due to unified memory architecture
+- Metal acceleration provides excellent performance
+- Typical model load time: 2-5 seconds
+
+---
+
+### Linux / Windows with NVIDIA GPU
+
+**Docker is the recommended method** for NVIDIA GPU systems.
+
+#### Requirements
+
+```bash
+# Install NVIDIA Container Toolkit (Ubuntu/Debian)
+sudo apt-get install nvidia-container-toolkit
+sudo systemctl restart docker
+```
+
+#### Run TEI with CUDA Acceleration
+
+```bash
+# Pull the GPU-enabled image
 docker pull ghcr.io/huggingface/text-embeddings-inference:latest
 
-# Run TEI in container
-docker run -p 8080:80 -v $HOME/.cache/huggingface:/data \
+# Run with GPU acceleration
+docker run --gpus all -p 8080:80 \
+  -v $HOME/.cache/huggingface:/data \
   ghcr.io/huggingface/text-embeddings-inference:latest \
-  --model-id nomic-ai/CodeRankEmbed
+  --model-id nomic-ai/nomic-embed-text-v1.5 \
+  --max-batch-tokens 32768
 ```
 
-### Option 4: Build from Source (Advanced)
+**Why Docker for NVIDIA GPU:**
+- ✅ **Full CUDA acceleration**
+- ✅ Pre-configured runtime environment
+- ✅ Best performance for high-throughput pipelines
+- ✅ Fastest model load (1-3 seconds) + batching
+- ✅ Easy deployment and updates
+
+---
+
+### CPU-Only Systems
+
+If no GPU is available, TEI still works (slower but functional).
+
+#### CPU Docker Image
 
 ```bash
-# Install Rust toolchain (if not already installed)
+# Pull CPU-only image
+docker pull ghcr.io/huggingface/text-embeddings-inference:cpu-latest
+
+# Run without GPU
+docker run -p 8080:80 \
+  -v $HOME/.cache/huggingface:/data \
+  ghcr.io/huggingface/text-embeddings-inference:cpu-latest \
+  --model-id nomic-ai/nomic-embed-text-v1.5
+```
+
+**Notes:**
+- ⚠️ **No GPU acceleration** - slower than Metal or CUDA
+- ✅ Works on any x86_64 system
+- ⏱️ Model load time: 5-10 seconds
+- 💡 Fine for development and small-scale use
+
+---
+
+### Build from Source (Advanced)
+
+For developers who need custom builds:
+
+```bash
+# Install Rust toolchain
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 source $HOME/.cargo/env
 
-# Clone and build TEI
+# Clone TEI repository
 git clone https://github.com/huggingface/text-embeddings-inference
 cd text-embeddings-inference
 
-# Mac (Apple Silicon): Build with Metal support
+# Build for your platform:
+
+# Mac (Apple Silicon) - Metal support
 cargo install --path router -F metal
 
-# Linux/Windows: Build with CUDA support
+# Linux/Windows - CUDA support
 cargo install --path router -F cuda
 
-# CPU-only build (any platform)
+# Any platform - CPU only
 cargo install --path router
 
-# Verify installation
+# Verify
 text-embeddings-router --version
 ```
+
+---
+
+### Platform Comparison
+
+| Platform | Install Method | GPU Acceleration | Model Load Time | Best For |
+|----------|---------------|------------------|-----------------|----------|
+| **Mac (Apple Silicon)** | `brew install` | **Metal (Yes!)** | 2-5s | Development, best Mac experience |
+| **NVIDIA GPU** | Docker `:latest` | **CUDA (Full)** | 1-3s | Production, highest performance |
+| **CPU-only** | Docker `:cpu-latest` | No | 5-10s | Development, no GPU available |
 
 ## Model Selection
 
@@ -148,7 +233,27 @@ See [cmd/tei-wrapper/README.md](../../cmd/tei-wrapper/README.md) for detailed wr
 
 **Run two separate TEI instances** for maximum performance (no switching delay):
 
-**Why two instances?** TEI does not support dynamic model switching at runtime. The model is specified at startup and remains loaded for the lifetime of the process.
+**Why two instances?** TEI does not support dynamic model switching at runtime. The model is specified at startup and remains loaded for the lifetime of the process. To switch models, you must stop the current TEI process and start a new one.
+
+**Model Switching (Serial Pipelines):**
+
+If your workflow processes code embeddings first, then text embeddings sequentially:
+
+```bash
+# Process code embeddings
+text-embeddings-router --model-id nomic-ai/nomic-embed-code
+
+# Stop when done (Ctrl+C or pkill)
+pkill text-embeddings-router
+
+# Switch to text model
+text-embeddings-router --model-id nomic-ai/nomic-embed-text-v1.5
+```
+
+**Typical Model Load Times:**
+- **Mac (Metal):** 2-5 seconds
+- **NVIDIA GPU (CUDA):** 1-3 seconds
+- **CPU-only:** 5-10 seconds
 
 ### Start Code Embeddings Server
 
@@ -233,6 +338,57 @@ code-scout index \
 ```
 
 **Note:** Dual endpoint support may require Code Scout configuration updates.
+
+## OpenAI-Compatible API
+
+TEI exposes an **OpenAI-compatible `/v1/embeddings` endpoint** - any HTTP client works!
+
+### API Format
+
+**Request:**
+```json
+{
+  "model": "nomic-ai/nomic-embed-text-v1.5",
+  "input": "Hello world"
+}
+```
+
+**Response:**
+```json
+{
+  "object": "list",
+  "data": [
+    {
+      "object": "embedding",
+      "embedding": [0.123, -0.456, ...],
+      "index": 0
+    }
+  ],
+  "model": "nomic-ai/nomic-embed-text-v1.5",
+  "usage": {
+    "prompt_tokens": 1,
+    "total_tokens": 1
+  }
+}
+```
+
+### Example: cURL
+
+```bash
+curl http://localhost:8080/v1/embeddings \
+  -H "Content-Type: application/json" \
+  -d '{"input":"Hello world","model":"nomic-ai/nomic-embed-text-v1.5"}'
+```
+
+### Language Support
+
+Any language with HTTP support can use TEI:
+- **Go:** `net/http`, any HTTP client
+- **Python:** `requests`, `httpx`, OpenAI SDK
+- **Node.js:** `fetch`, `axios`, OpenAI SDK
+- **Rust:** `reqwest`, `hyper`
+
+**No special SDK required** - just standard HTTP requests!
 
 ## Usage
 

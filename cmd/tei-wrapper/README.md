@@ -21,7 +21,16 @@ A lightweight HTTP wrapper around [Text Embeddings Inference (TEI)](https://gith
 
 TEI is a Rust-based embedding server from Hugging Face. Choose one method:
 
-#### Option A: Pre-built Binary (Fastest)
+#### Option A: Homebrew (Mac - Recommended)
+
+```bash
+# Install TEI via Homebrew
+brew install huggingface/tap/text-embeddings-inference
+```
+
+**Simplest method for Mac users!**
+
+#### Option B: Pre-built Binary
 
 ```bash
 # Download the latest release for your platform
@@ -41,14 +50,14 @@ chmod +x text-embeddings-router-x86_64-unknown-linux-gnu
 sudo mv text-embeddings-router-x86_64-unknown-linux-gnu /usr/local/bin/text-embeddings-router
 ```
 
-#### Option B: Using Docker
+#### Option C: Docker
 
 ```bash
 # Run TEI in a container (managed by wrapper)
 docker pull ghcr.io/huggingface/text-embeddings-inference:latest
 ```
 
-#### Option C: Build from Source
+#### Option D: Build from Source
 
 Requires Rust toolchain:
 
