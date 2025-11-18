@@ -1,0 +1,6 @@
+{
+  "endpoint": "https://openrouter.ai/api/v1",
+  "api_key": "sk-or-v1-your-key-here",
+  "code_model": "nomic-ai/nomic-embed-text-v1",
+  "text_model": "nomic-ai/nomic-embed-text-v1"
+}

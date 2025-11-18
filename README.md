@@ -210,10 +210,10 @@ Create a JSON file with the following structure:
 **OpenRouter**:
 ```json
 {
-  "endpoint": "https://openrouter.ai/api",
+  "endpoint": "https://openrouter.ai/api/v1",
   "api_key": "sk-or-v1-...",
-  "code_model": "nomic-ai/nomic-embed-text",
-  "text_model": "nomic-ai/nomic-embed-text"
+  "code_model": "nomic-ai/nomic-embed-text-v1",
+  "text_model": "nomic-ai/nomic-embed-text-v1"
 }
 ```
 
@@ -256,13 +256,30 @@ EOF
 # Or create project-specific config with API key for OpenRouter
 cat > .code-scout.json << 'EOF'
 {
-  "endpoint": "https://openrouter.ai/api",
+  "endpoint": "https://openrouter.ai/api/v1",
   "api_key": "sk-or-v1-your-key-here",
-  "code_model": "nomic-ai/nomic-embed-text",
-  "text_model": "nomic-ai/nomic-embed-text"
+  "code_model": "nomic-ai/nomic-embed-text-v1",
+  "text_model": "nomic-ai/nomic-embed-text-v1"
 }
 EOF
 ```
+
+### OpenRouter Quick Start
+
+1. **Create an account** at [openrouter.ai](https://openrouter.ai/) and generate an API key in the [Keys](https://openrouter.ai/keys) dashboard.
+2. **Copy the sample config** into your repo: `cp .code-scout.json.example .code-scout.json`. (Git already ignores `.code-scout.json`, so your key stays local.)
+3. **Edit `.code-scout.json`** and paste your `sk-or-v1-...` key. The defaults in the example use the free `nomic-ai/nomic-embed-text-v1` model for both code and docs, which works well for Code Scout.
+4. **Run indexing via OpenRouter**:
+   ```bash
+   ./dist/code-scout-darwin_arm64/code-scout index --workers 6 --batch-size 6
+   ```
+   Code Scout automatically authenticates with the API key and streams embeddings from OpenRouter's endpoint.
+5. **Search the indexed repo** the same way:
+   ```bash
+   ./dist/code-scout-darwin_arm64/code-scout search "pagination middleware" 
+   ```
+
+You can point multiple projects at the same API key using the user-level config (`~/.code-scout/config.json`), or keep per-project keys by storing `.code-scout.json` next to each repo. The `.code-scout.json.example` file demonstrates the expected shape so secrets never make it into git history.
 
 ## Getting Started
 

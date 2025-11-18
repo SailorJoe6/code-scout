@@ -26,6 +26,7 @@ go.work
 
 # Code Scout project-specific config (may contain sensitive endpoints/credentials)
 .code-scout.json
+!.code-scout.json.example
 
 # LanceDB native libraries (downloaded via script)
 lib/

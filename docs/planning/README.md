@@ -103,7 +103,7 @@ We're implementing semantic parsing for 9 additional languages beyond Go:
 
 1. **New to Code Scout?** Start with [overview.md](overview.md) to understand the architecture
 2. **Working on language support?** See [language-detection.md](language-detection.md)
-3. **Implementing a new feature?** Check [overview.md](overview.md) for the slice plan
+3. **Implementing a new feature?** Check [overview.md](overview.md) for the vertical slice plan
 4. **Need implementation details?** Review the specific planning docs for that area
 
 ## 🔗 Related Documentation
