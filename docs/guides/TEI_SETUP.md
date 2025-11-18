@@ -1,57 +1,92 @@
 # TEI (Text Embeddings Inference) Setup for Code Scout
 
-This guide covers setting up HuggingFace Text Embeddings Inference (TEI) for Code Scout on Apple Silicon (M1/M2/M3 Macs).
+This guide covers setting up HuggingFace Text Embeddings Inference (TEI) for Code Scout on all platforms.
 
 ## Why TEI?
 
-**TEI is the recommended embedding server for Apple Silicon** because:
+**TEI is the recommended embedding server for Code Scout** because:
 
-- ✅ **Native Metal support** - Runs efficiently on M1/M2/M3 GPUs
+- ✅ **Cross-platform** - Works on Mac (Metal), Linux/Windows (CUDA), even CPU-only
 - ✅ **Fast startup** - Models load in ~2-3 seconds
 - ✅ **Purpose-built for embeddings** - Optimized specifically for embedding inference
 - ✅ **OpenAI-compatible API** - Exposes `/v1/embeddings` endpoint out of the box
-- ✅ **Lightweight models** - CodeRankEmbed + nomic-embed-text use only ~524MB RAM total
-- ✅ **Excellent performance** - CodeRankEmbed achieves 77.9 MRR on CodeSearchNet (SOTA for its size)
+- ✅ **Excellent performance** - CodeRankEmbed achieves 77.9 MRR on CodeSearchNet
+- ✅ **Model hot-swapping** - Via Code Scout's TEI wrapper (single model at a time, lower memory)
 
-**Alternatives that DON'T work on M2:**
-- ❌ TGI (Text Generation Inference) - Requires CUDA/ROCm, no Metal support
-- ❌ vLLM - Requires CUDA/ROCm, slow startup (30-60s)
-
-## Prerequisites
-
-- macOS with Apple Silicon (M1/M2/M3)
-- Rust toolchain (will be installed in this guide)
-- ~2GB free disk space for TEI and models
-- ~1GB free RAM
+**Why not vLLM?**
+- ❌ Requires CUDA (no Metal/CPU support)
+- ❌ Slow startup (30-60s)
+- ❌ Higher memory usage
 
 ## Installation
 
-### Step 1: Install Rust
+### Option 1: Homebrew (Mac - Recommended)
 
 ```bash
-# Install Rust toolchain
-curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
-
-# Activate Rust environment
-source $HOME/.cargo/env
+# Install TEI via Homebrew
+brew install huggingface/tap/text-embeddings-inference
 
 # Verify installation
-rustc --version
-cargo --version
+text-embeddings-router --version
 ```
 
-### Step 2: Clone and Build TEI
+**Advantages:** Simple, automatic updates via `brew upgrade`, no build required.
+
+### Option 2: Pre-built Binaries (All Platforms)
+
+Download the appropriate binary for your platform:
 
 ```bash
-# Clone HuggingFace TEI repository
+# macOS (Apple Silicon)
+curl -LO https://github.com/huggingface/text-embeddings-inference/releases/latest/download/text-embeddings-router-aarch64-apple-darwin
+chmod +x text-embeddings-router-aarch64-apple-darwin
+sudo mv text-embeddings-router-aarch64-apple-darwin /usr/local/bin/text-embeddings-router
+
+# macOS (Intel)
+curl -LO https://github.com/huggingface/text-embeddings-inference/releases/latest/download/text-embeddings-router-x86_64-apple-darwin
+chmod +x text-embeddings-router-x86_64-apple-darwin
+sudo mv text-embeddings-router-x86_64-apple-darwin /usr/local/bin/text-embeddings-router
+
+# Linux (x86_64)
+curl -LO https://github.com/huggingface/text-embeddings-inference/releases/latest/download/text-embeddings-router-x86_64-unknown-linux-gnu
+chmod +x text-embeddings-router-x86_64-unknown-linux-gnu
+sudo mv text-embeddings-router-x86_64-unknown-linux-gnu /usr/local/bin/text-embeddings-router
+```
+
+### Option 3: Docker (All Platforms)
+
+```bash
+# Pull the official Docker image
+docker pull ghcr.io/huggingface/text-embeddings-inference:latest
+
+# Run TEI in container
+docker run -p 8080:80 -v $HOME/.cache/huggingface:/data \
+  ghcr.io/huggingface/text-embeddings-inference:latest \
+  --model-id nomic-ai/CodeRankEmbed
+```
+
+### Option 4: Build from Source (Advanced)
+
+```bash
+# Install Rust toolchain (if not already installed)
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+source $HOME/.cargo/env
+
+# Clone and build TEI
 git clone https://github.com/huggingface/text-embeddings-inference
 cd text-embeddings-inference
 
-# Build with Metal support (takes ~5-10 minutes)
+# Mac (Apple Silicon): Build with Metal support
 cargo install --path router -F metal
 
+# Linux/Windows: Build with CUDA support
+cargo install --path router -F cuda
+
+# CPU-only build (any platform)
+cargo install --path router
+
 # Verify installation
-text-embeddings-router --help
+text-embeddings-router --version
 ```
 
 ## Model Selection
@@ -75,11 +110,45 @@ Code Scout uses a **two-model architecture** for optimal results:
 
 **Total memory footprint:** ~524MB for both models running simultaneously
 
-## Running TEI
+## Running TEI with Code Scout
 
-### Why Two Instances?
+Code Scout needs different embedding models for code vs documentation. There are two approaches:
 
-TEI does not support dynamic model switching at runtime. The model is specified at startup and remains loaded for the lifetime of the process. Therefore, Code Scout's two-pass embedding system requires **two separate TEI instances** running on different ports.
+### Option A: TEI Wrapper (Recommended)
+
+**Use the Code Scout TEI wrapper** for automatic model hot-swapping:
+
+```bash
+# Build the wrapper (from Code Scout repo)
+cd cmd/tei-wrapper
+go build -o tei-wrapper .
+
+# Start the wrapper (defaults to port 11434, Ollama-compatible)
+./tei-wrapper
+```
+
+**How it works:**
+- Single TEI process with one model loaded at a time
+- Automatically detects model changes and restarts TEI
+- Lower memory usage (~4-8GB for single model vs 8-16GB for dual)
+- Ollama-compatible API on port 11434
+
+**Advantages:**
+- ✅ Lower memory usage (single model at a time)
+- ✅ Automatic model switching
+- ✅ Simpler process management
+- ✅ Better for development machines
+
+**Disadvantages:**
+- ⏱️ ~2-3 second delay during model switches
+
+See [cmd/tei-wrapper/README.md](../../cmd/tei-wrapper/README.md) for detailed wrapper documentation.
+
+### Option B: Dual TEI Instances (Advanced)
+
+**Run two separate TEI instances** for maximum performance (no switching delay):
+
+**Why two instances?** TEI does not support dynamic model switching at runtime. The model is specified at startup and remains loaded for the lifetime of the process.
 
 ### Start Code Embeddings Server
 
@@ -129,39 +198,41 @@ curl http://localhost:8001/v1/embeddings \
 
 ## Configure Code Scout
 
-Code Scout needs to know about your two TEI instances. Currently, the CLI expects a single endpoint and switches models. **We need to update Code Scout to support separate endpoints for code vs text models.**
+### With TEI Wrapper (Option A)
 
-### Temporary Workaround (Until Code Scout Supports Dual Endpoints)
-
-Run TEI with the same model for both passes:
+The wrapper is Ollama-compatible, so Code Scout works automatically:
 
 ```bash
-# Use CodeRankEmbed for both code and docs
-text-embeddings-router --model-id nomic-ai/CodeRankEmbed --port 11434
+# The wrapper runs on port 11434 by default (Ollama-compatible)
+# No additional configuration needed!
+
+# Index your repository
+code-scout index
+
+# Search
+code-scout search "authentication middleware"
 ```
 
-Then configure Code Scout:
+The wrapper automatically switches between models as needed:
+- Code files → Uses code embedding model
+- Documentation → Uses text embedding model
 
-```json
-{
-  "endpoint": "http://localhost:11434/v1",
-  "code_model": "nomic-ai/CodeRankEmbed",
-  "text_model": "nomic-ai/CodeRankEmbed"
-}
+### With Dual TEI Instances (Option B)
+
+Configure Code Scout to use separate endpoints:
+
+```bash
+# Set environment variables
+export CODE_EMBEDDINGS_URL=http://localhost:8001
+export TEXT_EMBEDDINGS_URL=http://localhost:8002
+
+# Or use command-line flags
+code-scout index \
+  --code-embeddings-url http://localhost:8001 \
+  --text-embeddings-url http://localhost:8002
 ```
 
-**Note:** This is not optimal but works. The proper solution requires Code Scout to support separate `code_endpoint` and `text_endpoint` configuration.
-
-### Future Configuration (When Dual Endpoints Supported)
-
-```json
-{
-  "code_endpoint": "http://localhost:8001/v1",
-  "text_endpoint": "http://localhost:8002/v1",
-  "code_model": "nomic-ai/CodeRankEmbed",
-  "text_model": "nomic-ai/nomic-embed-text-v1.5"
-}
-```
+**Note:** Dual endpoint support may require Code Scout configuration updates.
 
 ## Usage
 
@@ -303,18 +374,25 @@ lsof -ti:8001 | xargs kill
 - TEI (--workers 6 --batch-size 6): ~20-30 minutes
 - Ollama (--workers 2 --batch-size 2): ~60-90 minutes
 
-## Comparison: TEI vs Ollama
+## Comparison: TEI Wrapper vs Dual TEI vs Ollama
 
-| Feature | TEI | Ollama |
-|---------|-----|--------|
-| **Apple Silicon** | ✅ Metal | ✅ Native |
-| **Startup Time** | ~2-3s | ~1-2s |
-| **Concurrency** | High (6-10 workers) | Low (2 workers max) |
-| **Model Switching** | ❌ Need 2 instances | ✅ Automatic |
-| **Memory (both models)** | ~524MB | ~524MB |
-| **Indexing Speed** | Fast | Slow |
-| **Setup Complexity** | Moderate (Rust build) | Easy (binary install) |
-| **Use Case** | Production, performance | Development, simplicity |
+| Feature | TEI Wrapper | Dual TEI | Ollama |
+|---------|-------------|----------|--------|
+| **Platforms** | All (Mac/Linux/Win) | All | All |
+| **GPU Acceleration** | ✅ Metal/CUDA | ✅ Metal/CUDA | ✅ Metal/CUDA |
+| **Startup Time** | ~2-3s (per switch) | ~2-3s (once) | ~1-2s |
+| **Concurrency** | High (6-10 workers) | High (6-10) | Low (2 max) |
+| **Model Switching** | ✅ Automatic | ❌ Manual | ✅ Automatic |
+| **Memory (single model)** | ~4-8GB | ~8-16GB | ~4-8GB |
+| **Switching Delay** | ~2-3s | None | Minimal |
+| **Indexing Speed** | Fast | Fastest | Slow |
+| **Setup Complexity** | Easy (brew/binary) | Moderate | Easy |
+| **Best For** | Most users | Large repos, servers | Simplicity over speed |
+
+**Recommendation:**
+- **Development/Most Users:** TEI Wrapper (Option A)
+- **Production/Large Repos:** Dual TEI (Option B)
+- **Simplicity/Small Repos:** Ollama (see [OLLAMA_SETUP.md](OLLAMA_SETUP.md))
 
 ## Next Steps
 
@@ -322,16 +400,21 @@ lsof -ti:8001 | xargs kill
 - See [DEVELOPERS.md](../DEVELOPERS.md) for contributing to Code Scout
 - See [README.md](../../README.md) for general usage
 
-## Future Improvements
+## What's Next?
 
-**Code Scout enhancements needed:**
+**✅ Completed (Slices 1-2):**
+- TEI wrapper with OpenAI-compatible API
+- Model hot-swapping (automatic detection and restart)
+- Health endpoint with model status
 
-1. **Dual endpoint support** - Allow separate `code_endpoint` and `text_endpoint` in config
-2. **Automatic TEI detection** - Auto-detect TEI vs Ollama and adjust defaults
-3. **Process management** - Built-in commands to start/stop TEI instances
-4. **Health checks** - Verify TEI endpoints are responding before indexing
+**🚧 Coming Soon (Slices 3-4):**
+- Background pre-loading of next expected model (minimize switch delay)
+- Configuration file support
+- Request queuing during model switches
+- Enhanced error handling and logging
 
-**TEI wishlist:**
-
-1. **Dynamic model loading** - Runtime model switching via API (may never happen)
-2. **Multi-model serving** - Single process serving multiple models (alternative solution)
+**Future Ideas:**
+- Background daemon for automatic re-indexing
+- Dual endpoint support (skip wrapper for max performance)
+- Automatic TEI detection and configuration
+- Built-in TEI process management commands
