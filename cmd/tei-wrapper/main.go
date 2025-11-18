@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"sync"
 	"syscall"
 	"time"
 )
@@ -51,12 +52,15 @@ type TEIResponse [][]float64
 
 // Server manages the TEI wrapper
 type Server struct {
-	teiPort     int
-	teiBinary   string
+	teiPort      int
+	teiBinary    string
 	initialModel string
-	teiCmd      *exec.Cmd
-	teiBaseURL  string
-	client      *http.Client
+	currentModel string        // Currently loaded model
+	teiCmd       *exec.Cmd
+	teiBaseURL   string
+	client       *http.Client
+	mu           sync.RWMutex  // Protects model switching
+	switching    bool          // True during model switch
 }
 
 func main() {
@@ -72,6 +76,7 @@ func main() {
 		teiPort:      *teiPort,
 		teiBinary:    *teiBinary,
 		initialModel: *model,
+		currentModel: *model,
 		teiBaseURL:   fmt.Sprintf("http://localhost:%d", *teiPort),
 		client: &http.Client{
 			Timeout: 120 * time.Second, // Long timeout for large batches
@@ -80,7 +85,7 @@ func main() {
 
 	// Start TEI process
 	log.Printf("Starting TEI with model: %s", server.initialModel)
-	if err := server.startTEI(context.Background()); err != nil {
+	if err := server.startTEIWithModel(context.Background(), server.initialModel); err != nil {
 		log.Fatalf("Failed to start TEI: %v", err)
 	}
 	defer server.stopTEI()
@@ -122,11 +127,11 @@ func main() {
 	}
 }
 
-// startTEI starts the TEI process with the configured model
-func (s *Server) startTEI(ctx context.Context) error {
+// startTEIWithModel starts the TEI process with the specified model
+func (s *Server) startTEIWithModel(ctx context.Context, model string) error {
 	// TEI command: text-embeddings-router --model-id <model> --port <port>
 	s.teiCmd = exec.CommandContext(ctx, s.teiBinary,
-		"--model-id", s.initialModel,
+		"--model-id", model,
 		"--port", fmt.Sprintf("%d", s.teiPort),
 		"--max-batch-tokens", "16384", // Reasonable default
 	)
@@ -139,7 +144,8 @@ func (s *Server) startTEI(ctx context.Context) error {
 		return fmt.Errorf("failed to start TEI: %w", err)
 	}
 
-	log.Printf("TEI process started (PID: %d)", s.teiCmd.Process.Pid)
+	log.Printf("TEI process started with model %s (PID: %d)", model, s.teiCmd.Process.Pid)
+	s.currentModel = model
 	return nil
 }
 
@@ -191,6 +197,38 @@ func (s *Server) waitForTEI(timeout time.Duration) error {
 	return fmt.Errorf("TEI did not become ready within %v", timeout)
 }
 
+// switchModel switches to a new model by stopping and restarting TEI
+func (s *Server) switchModel(newModel string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	// Check if already on the requested model
+	if s.currentModel == newModel {
+		return nil
+	}
+
+	log.Printf("Switching model from %s to %s", s.currentModel, newModel)
+	s.switching = true
+	defer func() { s.switching = false }()
+
+	// Stop current TEI process
+	s.stopTEI()
+
+	// Start new TEI process with new model
+	ctx := context.Background()
+	if err := s.startTEIWithModel(ctx, newModel); err != nil {
+		return fmt.Errorf("failed to start TEI with new model: %w", err)
+	}
+
+	// Wait for new TEI to be ready
+	if err := s.waitForTEI(30 * time.Second); err != nil {
+		return fmt.Errorf("new TEI failed to start: %w", err)
+	}
+
+	log.Printf("Model switched successfully to %s", newModel)
+	return nil
+}
+
 // handleEmbeddings handles POST /v1/embeddings requests
 func (s *Server) handleEmbeddings(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
@@ -209,6 +247,28 @@ func (s *Server) handleEmbeddings(w http.ResponseWriter, r *http.Request) {
 	if len(req.Input) == 0 {
 		http.Error(w, "No input provided", http.StatusBadRequest)
 		return
+	}
+
+	// Check if we need to switch models
+	s.mu.RLock()
+	needsSwitch := req.Model != "" && req.Model != s.currentModel
+	isSwitching := s.switching
+	s.mu.RUnlock()
+
+	if isSwitching {
+		// Return 503 with Retry-After header during switch
+		w.Header().Set("Retry-After", "5")
+		http.Error(w, "Model switch in progress, please retry", http.StatusServiceUnavailable)
+		return
+	}
+
+	if needsSwitch {
+		// Switch to the requested model
+		if err := s.switchModel(req.Model); err != nil {
+			log.Printf("Model switch failed: %v", err)
+			http.Error(w, fmt.Sprintf("Model switch failed: %v", err), http.StatusInternalServerError)
+			return
+		}
 	}
 
 	// Forward to TEI
@@ -282,17 +342,40 @@ func (s *Server) getEmbeddings(inputs []string) ([][]float64, error) {
 
 // handleHealth returns the health status
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
+	s.mu.RLock()
+	currentModel := s.currentModel
+	isSwitching := s.switching
+	s.mu.RUnlock()
+
+	// Check if currently switching models
+	if isSwitching {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusServiceUnavailable)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"status":    "switching",
+			"model":     currentModel,
+			"switching": true,
+		})
+		return
+	}
+
 	// Check if TEI is healthy
 	resp, err := s.client.Get(s.teiBaseURL + "/health")
 	if err != nil || resp.StatusCode != http.StatusOK {
-		http.Error(w, "TEI is not healthy", http.StatusServiceUnavailable)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusServiceUnavailable)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"status": "unhealthy",
+			"model":  currentModel,
+			"error":  "TEI is not responding",
+		})
 		return
 	}
 	resp.Body.Close()
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{
+	json.NewEncoder(w).Encode(map[string]interface{}{
 		"status": "ok",
-		"model":  s.initialModel,
+		"model":  currentModel,
 	})
 }

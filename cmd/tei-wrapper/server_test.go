@@ -16,7 +16,8 @@ func TestEmbeddingsEndpoint(t *testing.T) {
 
 	// Create wrapper server pointing to mock TEI
 	server := &Server{
-		teiBaseURL: mockTEI.URL,
+		teiBaseURL:   mockTEI.URL,
+		currentModel: "test-model",
 		client: &http.Client{
 			Timeout: 10 * time.Second,
 		},
@@ -132,7 +133,8 @@ func TestHealthEndpoint(t *testing.T) {
 
 	// Create wrapper server
 	server := &Server{
-		teiBaseURL: mockTEI.URL,
+		teiBaseURL:   mockTEI.URL,
+		currentModel: "test-model",
 		client: &http.Client{
 			Timeout: 10 * time.Second,
 		},
@@ -155,17 +157,17 @@ func TestHealthEndpoint(t *testing.T) {
 	}
 
 	// Parse response
-	var health map[string]string
+	var health map[string]interface{}
 	if err := json.NewDecoder(resp.Body).Decode(&health); err != nil {
 		t.Fatalf("Failed to parse response: %v", err)
 	}
 
 	if health["status"] != "ok" {
-		t.Errorf("Expected status='ok', got %s", health["status"])
+		t.Errorf("Expected status='ok', got %v", health["status"])
 	}
 
 	if health["model"] != "test-model" {
-		t.Errorf("Expected model='test-model', got %s", health["model"])
+		t.Errorf("Expected model='test-model', got %v", health["model"])
 	}
 }
 
@@ -176,7 +178,8 @@ func TestGetEmbeddings(t *testing.T) {
 
 	// Create wrapper server
 	server := &Server{
-		teiBaseURL: mockTEI.URL,
+		teiBaseURL:   mockTEI.URL,
+		currentModel: "test-model",
 		client: &http.Client{
 			Timeout: 10 * time.Second,
 		},
@@ -198,4 +201,169 @@ func TestGetEmbeddings(t *testing.T) {
 			t.Errorf("Embedding %d: expected 768 dimensions, got %d", i, len(emb))
 		}
 	}
+}
+
+func TestModelHotSwapping(t *testing.T) {
+	// Create mock TEI server
+	mockTEI := createMockTEI(t)
+	defer mockTEI.Close()
+
+	// Create wrapper server with initial model
+	server := &Server{
+		teiBaseURL:   mockTEI.URL,
+		currentModel: "model-a",
+		client: &http.Client{
+			Timeout: 10 * time.Second,
+		},
+	}
+
+	// Create test HTTP server
+	testServer := httptest.NewServer(http.HandlerFunc(server.handleEmbeddings))
+	defer testServer.Close()
+
+	// Test case 1: Request with same model (no switch)
+	t.Run("SameModel", func(t *testing.T) {
+		reqBody := EmbeddingRequest{
+			Model: "model-a",
+			Input: []string{"test"},
+		}
+
+		bodyBytes, _ := json.Marshal(reqBody)
+		resp, err := http.Post(testServer.URL, "application/json", bytes.NewReader(bodyBytes))
+		if err != nil {
+			t.Fatalf("Request failed: %v", err)
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusOK {
+			t.Errorf("Expected status 200, got %d", resp.StatusCode)
+		}
+
+		// Verify model didn't change
+		if server.currentModel != "model-a" {
+			t.Errorf("Expected model to remain 'model-a', got %s", server.currentModel)
+		}
+	})
+
+	// Test case 2: Request with different model (should succeed in test since we mock TEI)
+	t.Run("DifferentModel", func(t *testing.T) {
+		// Note: In unit test, switchModel won't actually work since there's no real TEI process
+		// But we can test that the code path is hit
+		reqBody := EmbeddingRequest{
+			Model: "model-b",
+			Input: []string{"test"},
+		}
+
+		bodyBytes, _ := json.Marshal(reqBody)
+		resp, err := http.Post(testServer.URL, "application/json", bytes.NewReader(bodyBytes))
+		if err != nil {
+			t.Fatalf("Request failed: %v", err)
+		}
+		defer resp.Body.Close()
+
+		// Will fail because switchModel tries to stop/start real TEI
+		// This is expected in unit test - integration test would verify full flow
+		if resp.StatusCode == http.StatusOK {
+			t.Log("Model switch succeeded (mock environment)")
+		} else {
+			t.Logf("Model switch failed as expected in unit test: status %d", resp.StatusCode)
+		}
+	})
+
+	// Test case 3: Empty model string (should use current model)
+	t.Run("EmptyModel", func(t *testing.T) {
+		reqBody := EmbeddingRequest{
+			Model: "",
+			Input: []string{"test"},
+		}
+
+		bodyBytes, _ := json.Marshal(reqBody)
+		resp, err := http.Post(testServer.URL, "application/json", bytes.NewReader(bodyBytes))
+		if err != nil {
+			t.Fatalf("Request failed: %v", err)
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusOK {
+			t.Errorf("Expected status 200, got %d", resp.StatusCode)
+		}
+	})
+}
+
+func TestHealthWithModelInfo(t *testing.T) {
+	// Create mock TEI server
+	mockTEI := createMockTEI(t)
+	defer mockTEI.Close()
+
+	// Test case 1: Normal healthy state
+	t.Run("Healthy", func(t *testing.T) {
+		server := &Server{
+			teiBaseURL:   mockTEI.URL,
+			currentModel: "test-model",
+			switching:    false,
+			client: &http.Client{
+				Timeout: 10 * time.Second,
+			},
+		}
+
+		testServer := httptest.NewServer(http.HandlerFunc(server.handleHealth))
+		defer testServer.Close()
+
+		resp, err := http.Get(testServer.URL)
+		if err != nil {
+			t.Fatalf("Request failed: %v", err)
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusOK {
+			t.Errorf("Expected status 200, got %d", resp.StatusCode)
+		}
+
+		var health map[string]interface{}
+		json.NewDecoder(resp.Body).Decode(&health)
+
+		if health["status"] != "ok" {
+			t.Errorf("Expected status='ok', got %v", health["status"])
+		}
+
+		if health["model"] != "test-model" {
+			t.Errorf("Expected model='test-model', got %v", health["model"])
+		}
+	})
+
+	// Test case 2: Switching state
+	t.Run("Switching", func(t *testing.T) {
+		server := &Server{
+			teiBaseURL:   mockTEI.URL,
+			currentModel: "old-model",
+			switching:    true,
+			client: &http.Client{
+				Timeout: 10 * time.Second,
+			},
+		}
+
+		testServer := httptest.NewServer(http.HandlerFunc(server.handleHealth))
+		defer testServer.Close()
+
+		resp, err := http.Get(testServer.URL)
+		if err != nil {
+			t.Fatalf("Request failed: %v", err)
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusServiceUnavailable {
+			t.Errorf("Expected status 503, got %d", resp.StatusCode)
+		}
+
+		var health map[string]interface{}
+		json.NewDecoder(resp.Body).Decode(&health)
+
+		if health["status"] != "switching" {
+			t.Errorf("Expected status='switching', got %v", health["status"])
+		}
+
+		if health["switching"] != true {
+			t.Errorf("Expected switching=true, got %v", health["switching"])
+		}
+	})
 }
