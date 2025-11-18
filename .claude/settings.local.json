@@ -32,7 +32,11 @@
       "Bash(bd dep --help:*)",
       "Bash(bd dep add --help:*)",
       "Bash(bd dep add:*)",
-      "Bash(go test:*)"
+      "Bash(go test:*)",
+      "WebFetch(domain:openrouter.ai)",
+      "WebFetch(domain:huggingface.github.io)",
+      "WebFetch(domain:www.nomic.ai)",
+      "WebFetch(domain:docs.vllm.ai)"
     ],
     "deny": [],
     "ask": []

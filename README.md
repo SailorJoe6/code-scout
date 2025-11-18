@@ -207,13 +207,13 @@ Create a JSON file with the following structure:
 }
 ```
 
-**OpenRouter**:
+**Cloud Provider (OpenAI-compatible)**:
 ```json
 {
-  "endpoint": "https://openrouter.ai/api/v1",
-  "api_key": "sk-or-v1-...",
-  "code_model": "nomic-ai/nomic-embed-text-v1",
-  "text_model": "nomic-ai/nomic-embed-text-v1"
+  "endpoint": "https://api.provider.com/v1",
+  "api_key": "your-api-key",
+  "code_model": "provider-code-model",
+  "text_model": "provider-text-model"
 }
 ```
 
@@ -253,33 +253,38 @@ cat > ~/.code-scout/config.json << 'EOF'
 }
 EOF
 
-# Or create project-specific config with API key for OpenRouter
+# Or create project-specific config with API key for cloud provider
 cat > .code-scout.json << 'EOF'
 {
-  "endpoint": "https://openrouter.ai/api/v1",
-  "api_key": "sk-or-v1-your-key-here",
-  "code_model": "nomic-ai/nomic-embed-text-v1",
-  "text_model": "nomic-ai/nomic-embed-text-v1"
+  "endpoint": "https://api.provider.com/v1",
+  "api_key": "your-api-key",
+  "code_model": "provider-code-model",
+  "text_model": "provider-text-model"
 }
 EOF
 ```
 
-### OpenRouter Quick Start
+### Cloud Provider Setup
 
-1. **Create an account** at [openrouter.ai](https://openrouter.ai/) and generate an API key in the [Keys](https://openrouter.ai/keys) dashboard.
-2. **Copy the sample config** into your repo: `cp .code-scout.json.example .code-scout.json`. (Git already ignores `.code-scout.json`, so your key stays local.)
-3. **Edit `.code-scout.json`** and paste your `sk-or-v1-...` key. The defaults in the example use the free `nomic-ai/nomic-embed-text-v1` model for both code and docs, which works well for Code Scout.
-4. **Run indexing via OpenRouter**:
+Code Scout works with any OpenAI-compatible embedding API endpoint. This includes services like OpenRouter, OpenAI, and other providers that expose a `/v1/embeddings` endpoint.
+
+**Important:** Most cloud providers do NOT host the nomic-ai embedding models used in the self-hosted setup. You'll need to use the provider's available embedding models instead.
+
+1. **Choose a provider** that offers OpenAI-compatible embedding APIs
+2. **Create an account** and generate an API key
+3. **Check available models** - Ensure they offer code and text embedding models
+4. **Copy the sample config**: `cp .code-scout.json.example .code-scout.json`
+5. **Edit `.code-scout.json`** with your provider's endpoint, API key, and model names
+6. **Run indexing**:
    ```bash
-   ./dist/code-scout-darwin_arm64/code-scout index --workers 6 --batch-size 6
-   ```
-   Code Scout automatically authenticates with the API key and streams embeddings from OpenRouter's endpoint.
-5. **Search the indexed repo** the same way:
-   ```bash
-   ./dist/code-scout-darwin_arm64/code-scout search "pagination middleware" 
+   ./code-scout index --workers 6 --batch-size 6
    ```
 
-You can point multiple projects at the same API key using the user-level config (`~/.code-scout/config.json`), or keep per-project keys by storing `.code-scout.json` next to each repo. The `.code-scout.json.example` file demonstrates the expected shape so secrets never make it into git history.
+**Note:** Cloud hosting typically incurs costs based on usage. For free, self-hosted options see:
+- [TEI Setup Guide](docs/guides/TEI_SETUP.md) - Fast, optimized for M2/Apple Silicon
+- [Ollama Setup Guide](docs/guides/OLLAMA_SETUP.md) - Simple, works on all platforms
+
+Git already ignores `.code-scout.json`, so your API keys stay local and never get committed.
 
 ## Getting Started
 
