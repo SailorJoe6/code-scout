@@ -212,6 +212,7 @@ type Chunk struct {
     ChunkType string            // function, method, struct, etc.
     Name      string            // Name of function/type
     Metadata  map[string]string // Context info
+    EmbeddingType string         // "code" or "docs" (selects embedding model)
 }
 
 type Chunker interface {
@@ -221,21 +222,26 @@ type Chunker interface {
 
 **Implementations**:
 
-1. **Basic Chunker** (chunker.go)
-   - Splits on blank lines
-   - Fallback for unsupported languages
-   - Simple, fast, no dependencies
+1. **Markdown Chunker** (`markdown.go`)
+   - Splits docs/rst files by heading hierarchy
+   - Preserves titles + subheadings in metadata
+   - Marks `EmbeddingType = "docs"` so the text model is used
 
-2. **Semantic Chunker** (semantic.go)
-   - Uses tree-sitter for Go and Python
-   - Extracts complete functions, methods, types
-   - Captures context metadata
-   - Falls back to basic chunker if parsing fails
+2. **Semantic Chunker** (`semantic.go`)
+   - Uses tree-sitter for Go, Python, JavaScript, TypeScript, Java, Rust, C, C++, Ruby, PHP, Scala
+   - Detects the real language with `parser.DetectLanguage` (handles `.c`/`.h` heuristics)
+   - Extracts complete functions, methods, structs, classes, interfaces, traits
+   - Captures doc comments, signatures, receivers, imports, packages
+   - Marks `EmbeddingType = "code"` so large code embeddings are generated
+
+3. **Legacy Blank-Line Chunker** (`chunker.go`)
+   - Splits on blank lines for quick experiments
+   - Useful when prototyping new languages outside the main CLI flow
 
 **Interface**:
 ```go
-func New() *Chunker  // Basic chunker
-func NewSemantic() *SemanticChunker  // Tree-sitter chunker
+func New() *Chunker                 // Blank-line chunker constructor
+func NewSemantic() *SemanticChunker // Markdown + tree-sitter chunker
 ```
 
 **Implementation**:
@@ -275,28 +281,34 @@ type Chunk struct {
 
 **Interface**:
 ```go
-// Create parser for specific language
-func NewGoParser() (*Parser, error)
-func NewPythonParser() (*Parser, error)
-
-// Parse source code
+func NewParser(lang parser.Language) (*Parser, error)       // Create parser for 11 languages
+func DetectLanguage(path string, content []byte) Language   // Extension + heuristic detection
+func (l Language) IsSupported() bool                        // Guards scanner/input
 func (p *Parser) Parse(ctx context.Context, source []byte) (*sitter.Tree, error)
+func (p *Parser) Language() Language
 ```
 
-**Extractor** (extractor.go):
+**Extractor** (`extractor.go`):
 ```go
 type Extractor struct {
     parser *Parser
 }
 
-// Extract semantic chunks from Go code
-func (e *Extractor) ExtractGoChunks(source []byte, filePath string) ([]Chunk, error)
+// Unified semantic extraction for every language
+func (e *Extractor) ExtractFunctions(ctx context.Context) ([]*Chunk, error)
 
-// Specific extractors (called internally)
-func (e *Extractor) extractFunction(node *sitter.Node, source []byte) Chunk
-func (e *Extractor) extractMethod(node *sitter.Node, source []byte) Chunk
-func (e *Extractor) extractType(node *sitter.Node, source []byte) Chunk
+// Helpers dispatch based on tree-sitter node kinds
+func (e *Extractor) extractFunction(node *sitter.Node) *Chunk           // Go-specific logic
+func (e *Extractor) extractMethod(node *sitter.Node) *Chunk             // Go-specific logic
+func (e *Extractor) extractTypes(node *sitter.Node) []*Chunk            // Go-specific
+func (e *Extractor) extractGenericNode(node *sitter.Node, kind string) *Chunk // Python/JS/TS/Java/Rust/C/C++/Ruby/PHP/Scala
+func (e *Extractor) mapNodeKindToChunkType(kind string) ChunkType
 ```
+
+**Tree-sitter queries**:
+- Stored in `internal/parser/queries/<language>.scm`
+- Define which node kinds map to chunk types per language
+- Loaded by `parser.NewExtractor` during traversal to keep logic data-driven
 
 **What it Extracts**:
 

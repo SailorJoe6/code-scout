@@ -36,8 +36,8 @@ Code Scout is a semantic code search tool built on four core principles:
                      │   parser)       │
                      │                 │
                      │ Tree-sitter     │
-                     │ Go/Python       │
-                     │ Extract types   │
+                     │ Multi-language  │
+                     │ Chunk metadata  │
                      └─────────────────┘
                               │
         ┌─────────────────────┴─────────────────────┐
@@ -62,14 +62,16 @@ Code Scout is a semantic code search tool built on four core principles:
 - Returns file paths with language detection
 
 **Parser** - Semantic understanding
-- Uses tree-sitter for language parsing
+- Uses tree-sitter for 11 languages via `parser.NewParser`
 - Extracts functions, methods, types, interfaces
 - Captures context metadata (imports, package, etc.)
+- Detects language from extension + heuristics (`parser.DetectLanguage`)
 
 **Chunker** - Code segmentation
-- Delegates to semantic chunker for supported languages (Go, Python)
-- Falls back to blank-line chunking for unsupported languages
-- Each chunk has: code, file path, line range, type, metadata
+- Routes docs to Markdown chunker and code to semantic chunker
+- Semantic chunker covers Go, Python, JavaScript, TypeScript, Java, Rust, C, C++, Ruby, PHP, Scala
+- Each chunk records code, file path, line range, chunk type, metadata, and embedding type
+- Legacy blank-line chunker remains for manual fallback but CLI fails fast on unsupported code
 
 **Embeddings** - Semantic representation
 - Calls Ollama API to generate vector embeddings

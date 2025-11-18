@@ -1,487 +1,88 @@
 # Semantic Chunking with Tree-sitter
 
-## Overview
-
-Semantic chunking is Code Scout's approach to dividing source code into meaningful units that preserve structure and context. Unlike naive line-based or blank-line splitting, semantic chunking uses tree-sitter to parse code and extract complete functions, methods, types, and other language constructs.
-
-## Problem: Naive Chunking
-
-Traditional approaches split code arbitrarily:
-
-**Blank-line chunking**:
-```go
-// Chunk 1
-package main
-
-// Chunk 2
-import "fmt"
-
-// Chunk 3
-func Add(a, b int) int {
-    return a + b
-}
-
-// Chunk 4
-func Multiply(a, b int) int {
-    return a * b
-}
-```
-
-**Problems**:
-- Loses context (package, imports separated)
-- Breaks logical units across chunks
-- No semantic understanding
-- Embedding doesn't capture "what this code does"
-
-## Solution: Tree-sitter Semantic Extraction
-
-Tree-sitter parses source code into an Abstract Syntax Tree (AST), allowing us to extract complete, meaningful units.
-
-**Semantic chunking** (same code):
-```go
-// Chunk 1: Function
-{
-    ChunkType: "function",
-    Name: "Add",
-    Code: "func Add(a, b int) int {\n    return a + b\n}",
-    Metadata: {
-        "package": "main",
-        "imports": "fmt",
-        "params": "a, b int",
-        "returns": "int",
-    }
-}
-
-// Chunk 2: Function
-{
-    ChunkType: "function",
-    Name: "Multiply",
-    Code: "func Multiply(a, b int) int {\n    return a * b\n}",
-    Metadata: {
-        "package": "main",
-        "imports": "fmt",
-        "params": "a, b int",
-        "returns": "int",
-    }
-}
-```
-
-**Benefits**:
-- Complete semantic units (full function/method/type)
-- Context preserved in metadata
-- Better embeddings (captures function's purpose)
-- More relevant search results
-
-## Tree-sitter Integration
-
-### Parser Setup
-
-Code Scout uses [go-tree-sitter](https://github.com/tree-sitter/go-tree-sitter) with language-specific grammars:
-
-```go
-// Create parser for Go
-parser := sitter.NewParser()
-lang := sitter.NewLanguage(tree_sitter_go.Language())
-parser.SetLanguage(lang)
-
-// Parse source code
-tree, err := parser.ParseCtx(ctx, nil, source)
-root := tree.RootNode()
-```
-
-**Supported Languages**:
-- Go (`tree-sitter-go`)
-- Python (`tree-sitter-python`)
-
-**Implementation**: internal/parser/treesitter.go:16-28
-
-### AST Traversal
-
-Tree-sitter provides an AST where each node has:
-- **Type**: e.g., "function_declaration", "method_declaration", "type_declaration"
-- **Children**: Nested nodes (parameters, body, etc.)
-- **Position**: Line and column numbers in source
-
-Example AST for `func Add(a, b int) int { return a + b }`:
-```
-function_declaration
-├── func [keyword]
-├── identifier: "Add"
-├── parameter_list
-│   ├── parameter_declaration: "a, b int"
-├── type_identifier: "int"
-└── block
-    └── return_statement
-        └── binary_expression: "a + b"
-```
-
-Code Scout walks this tree looking for specific node types:
-```go
-func (e *Extractor) walkNode(node *sitter.Node, source []byte, chunks *[]Chunk) {
-    switch node.Type() {
-    case "function_declaration":
-        chunk := e.extractFunction(node, source)
-        *chunks = append(*chunks, chunk)
-    case "method_declaration":
-        chunk := e.extractMethod(node, source)
-        *chunks = append(*chunks, chunk)
-    case "type_declaration":
-        chunk := e.extractType(node, source)
-        *chunks = append(*chunks, chunk)
-    // ... other types
-    }
-
-    // Recurse to children
-    for i := 0; i < int(node.ChildCount()); i++ {
-        e.walkNode(node.Child(i), source, chunks)
-    }
-}
-```
-
-**Implementation**: internal/parser/extractor.go:52-100
-
-## Go-Specific Extraction
-
-### Functions
-
-**Tree-sitter Node Type**: `function_declaration`
-
-**Extracted Information**:
-```go
-func Add(a, b int) int {
-    return a + b
-}
-
-→
-
-Chunk{
-    ChunkType: "function",
-    Name:      "Add",
-    Content:   "func Add(a, b int) int {\n    return a + b\n}",
-    StartLine: 10,
-    EndLine:   12,
-    Metadata: {
-        "package":  "math",
-        "imports":  "...",
-        "params":   "a, b int",
-        "returns":  "int",
-    },
-}
-```
-
-**Extraction Logic**:
-1. Find `identifier` child → function name
-2. Find `parameter_list` → extract parameter string
-3. Find return type (type_identifier or parameter_list after params)
-4. Get full text from start to end position
-5. Extract package and imports from file context
-
-**Implementation**: internal/parser/extractor.go:155-269
-
-### Methods
-
-**Tree-sitter Node Type**: `method_declaration`
-
-**Difference from Functions**: Methods have a receiver
-
-```go
-func (c *Calculator) Add(a, b int) int {
-    return a + b
-}
-
-→
-
-Chunk{
-    ChunkType: "method",
-    Name:      "Add",
-    Content:   "func (c *Calculator) Add(a, b int) int {\n    return a + b\n}",
-    Metadata: {
-        "receiver":       "*Calculator",
-        "receiver_type":  "Calculator",
-        "receiver_name":  "c",
-        "params":         "a, b int",
-        "returns":        "int",
-    },
-}
-```
-
-**Extraction Logic**:
-1. Find `parameter_list` (first one is receiver)
-2. Extract receiver type (e.g., `*Calculator`)
-3. Extract receiver name (e.g., `c`)
-4. Continue like function extraction for params and return type
-
-**Implementation**: internal/parser/extractor.go:271-341
-
-### Types
-
-Tree-sitter recognizes several type declarations in Go:
-
-**1. Struct Types**:
-```go
-type User struct {
-    Name  string
-    Email string
-}
-
-→
-
-Chunk{
-    ChunkType: "struct",
-    Name:      "User",
-    Content:   "type User struct {\n    Name  string\n    Email string\n}",
-    Metadata: {
-        "fields": "Name string, Email string",
-    },
-}
-```
-
-**2. Interface Types**:
-```go
-type Reader interface {
-    Read(p []byte) (n int, err error)
-}
-
-→
-
-Chunk{
-    ChunkType: "interface",
-    Name:      "Reader",
-    Content:   "type Reader interface {...}",
-    Metadata: {
-        "methods": "Read",
-    },
-}
-```
-
-**3. Type Aliases**:
-```go
-type UserID string
-
-→
-
-Chunk{
-    ChunkType: "type_alias",
-    Name:      "UserID",
-    Content:   "type UserID string",
-    Metadata: {
-        "underlying": "string",
-    },
-}
-```
-
-**Implementation**: internal/parser/extractor.go:343-469
-
-### Context Metadata
-
-Beyond the code itself, semantic chunking captures context:
-
-**Package Information**:
-```go
-// Extracted from file's package declaration
-"package": "handlers"
-```
-
-**Imports**:
-```go
-// Extracted from file's import block
-"imports": "fmt, strings, github.com/user/pkg"
-```
-
-**Function Signature Details**:
-```go
-"params":  "ctx context.Context, id string",
-"returns": "(User, error)",
-```
-
-**Struct Field Information**:
-```go
-"fields": "ID int, Name string, CreatedAt time.Time",
-```
-
-This metadata enriches the embedding, making searches more precise.
-
-**Implementation**: internal/parser/extractor.go:472-520
-
-## Fallback Behavior
-
-If tree-sitter parsing fails (unsupported language, syntax errors), Code Scout falls back to basic blank-line chunking:
-
-```go
-chunks, err := semanticChunker.ChunkFile(filePath, language)
-if err != nil {
-    // Fall back to basic chunker
-    chunks = basicChunker.ChunkFile(filePath, language)
-}
-```
-
-This ensures Code Scout works with all files, even if semantic extraction isn't available.
-
-**Implementation**: internal/chunker/semantic.go:40-62
-
-## Performance Considerations
-
-**Parsing Speed**:
-- Tree-sitter is fast: ~500-1000 LOC/ms
-- Parsing is usually <1% of total indexing time
-- Embedding generation is the bottleneck
-
-**Memory Usage**:
-- Tree-sitter builds in-memory AST
-- Released after extraction completes
-- Minimal memory overhead
-
-**Accuracy**:
-- Tree-sitter handles most valid Go/Python syntax
-- Gracefully handles minor syntax errors
-- Falls back to basic chunking on parse failures
-
-## Extending to New Languages
-
-To add semantic chunking for a new language:
-
-1. **Add tree-sitter grammar dependency**:
-```go
-import tree_sitter_rust "github.com/tree-sitter/tree-sitter-rust/bindings/go"
-```
-
-2. **Create parser function**:
-```go
-func NewRustParser() (*Parser, error) {
-    parser := sitter.NewParser()
-    lang := sitter.NewLanguage(tree_sitter_rust.Language())
-    if err := parser.SetLanguage(lang); err != nil {
-        return nil, err
-    }
-    return &Parser{parser: parser}, nil
-}
-```
-
-3. **Implement extractor**:
-```go
-func (e *Extractor) ExtractRustChunks(source []byte, filePath string) ([]Chunk, error) {
-    // Walk AST looking for:
-    // - function_item
-    // - struct_item
-    // - impl_item
-    // etc.
-}
-```
-
-4. **Update semantic chunker**:
-```go
-case "rust":
-    parser, _ := parser.NewRustParser()
-    extractor := parser.NewExtractor(parser)
-    return extractor.ExtractRustChunks(source, filePath)
-```
-
-See [extension-points.md](extension-points.md) for detailed guide.
-
-## Testing
-
-Semantic chunking has comprehensive tests:
-
-**Unit Tests** (per language):
-- `internal/parser/extractor_test.go` - Go extraction
-- `internal/parser/types_test.go` - Type declarations
-- `internal/parser/metadata_test.go` - Context metadata
-
-**Integration Tests**:
-- `internal/chunker/integration_test.go` - End-to-end chunking
-- `internal/chunker/semantic_test.go` - Semantic chunker behavior
-
-Run tests:
+Semantic chunking is how Code Scout turns raw source files into semantically meaningful units that AI assistants can reason about. The current implementation supports 11 programming languages plus Markdown-style documentation while keeping the chunking pipeline uniform.
+
+## End-to-End Pipeline
+
+1. **Entry point** – `internal/chunker/semantic.go`
+   - `SemanticChunker.ChunkFile(path, language)` receives every file selected by the scanner.
+   - Markdown-like languages (`markdown`, `rst`, `text`) are routed to `MarkdownChunker`, which splits on headings and marks each chunk with `EmbeddingType: "docs"`.
+   - Code files route to `chunkCode`, which reads the file, detects the precise language, and sets `EmbeddingType: "code"`.
+
+2. **Language detection** – `internal/parser/language.go`
+   - `parser.DetectLanguage(path, contents)` uses file extensions plus heuristics for ambiguous cases.
+   - `.c` and `.h` files get promoted to C++ when C++-only markers (`class`, `namespace`, templates, etc.) appear; otherwise they stay C.
+   - Detection output drives both parser selection and downstream metadata such as `Chunk.Language`.
+
+3. **Parser construction** – `internal/parser/treesitter.go`
+   - `parser.NewParser(lang)` instantiates a tree-sitter parser for the detected language (`tree-sitter-go`, `tree-sitter-python`, …).
+   - TypeScript reuses the JavaScript grammar with TSX support enabled.
+
+4. **Extraction** – `internal/parser/extractor.go`
+   - `Extractor.ExtractFunctions(ctx)` parses the file, caches package/import metadata, and walks the AST.
+   - Go keeps specialized extractors (`extractFunction`, `extractMethod`, `extractTypes`) to preserve receivers, signatures, and field metadata.
+   - All other languages share `extractGenericNode`, which maps tree-sitter node kinds to Code Scout chunk types through `mapNodeKindToChunkType`.
+   - Doc comments, receivers, signatures, imports, packages, and docstrings are added to `Chunk.Metadata` so embeddings capture intent.
+
+5. **Chunk normalization**
+   - `SemanticChunker` wraps parser chunks into `chunker.Chunk` instances (UUID, file path, line span, chunk type, metadata, embedding type).
+   - The indexer later batches `EmbeddingType: "code"` chunks with the code embedding model and `EmbeddingType: "docs"` chunks with the text model.
+
+## Documentation Chunking
+
+Markdown, reStructuredText, and plain text files never run through tree-sitter. `internal/chunker/markdown.go` evaluates heading depth, merges adjoining paragraphs, and emits document chunks that include the heading hierarchy in metadata. When a file does not contain headings (plain text/rst), the entire file becomes a single `ChunkType: "document"` segment so AI assistants retain context for design docs.
+
+## Language Support Matrix
+
+| Language    | Tree-sitter grammar                                | Query file                               | Chunk types emitted |
+|-------------|----------------------------------------------------|------------------------------------------|--------------------|
+| Go          | `tree-sitter-go`                                   | `internal/parser/queries/go.scm`         | functions, methods, structs, interfaces, const, var |
+| Python      | `tree-sitter-python`                               | `internal/parser/queries/python.scm`     | functions, async functions, classes |
+| JavaScript  | `tree-sitter-javascript`                           | `internal/parser/queries/javascript.scm` | functions, arrow functions, classes, methods |
+| TypeScript  | `tree-sitter-javascript` (with TS queries)         | `internal/parser/queries/typescript.scm` | functions, arrow functions, classes, methods |
+| Java        | `tree-sitter-java`                                 | `internal/parser/queries/java.scm`       | classes, interfaces, methods, constructors, enums |
+| Rust        | `tree-sitter-rust`                                 | `internal/parser/queries/rust.scm`       | functions, impls, structs, enums, traits |
+| C           | `tree-sitter-c`                                    | `internal/parser/queries/c.scm`          | functions, structs, unions, enums |
+| C++         | `tree-sitter-cpp`                                  | `internal/parser/queries/cpp.scm`        | functions, classes, namespaces, templates |
+| Ruby        | `tree-sitter-ruby`                                 | `internal/parser/queries/ruby.scm`       | methods, singleton methods, classes, modules |
+| PHP         | `tree-sitter-php`                                  | `internal/parser/queries/php.scm`        | functions, classes, methods, interfaces, traits, enums |
+| Scala       | `tree-sitter-scala`                                | `internal/parser/queries/scala.scm`      | functions, classes, objects, traits, case classes |
+
+Each `.scm` file lists node patterns we care about per language. `extractGenericNode` keeps the implementation compact by translating these node types into Code Scout chunk types.
+
+## Metadata Captured Per Chunk
+
+- **Structural context**: chunk type, name, file path, start/end lines.
+- **Language**: `chunk.Language` plus `Metadata["language"]` (currently always `"go"` for Go chunks, generic importer does not overwrite non-Go languages).
+- **Doc comments**: attached for any node preceded by documentation comments (Go) or docstring nodes (Python, PHP, Ruby).
+- **Signatures and receivers**: stored for Go functions/methods; generic extractor adds whatever identifier or name nodes exist.
+- **Package/imports**: Go-specific metadata extracted before traversal via `extractFileMetadata`.
+- **Heading context**: provided by the Markdown chunker so docs preserve navigation cues.
+- **EmbeddingType**: drives whether `code-scout-code` or `code-scout-text` embeddings are generated.
+
+## Language-specific Notes
+
+- **Go** – still the richest metadata path. `extractFunction`, `extractMethod`, and `extractTypes` in `internal/parser/extractor.go` capture receivers, field lists, imports, and package names.
+- **Python** – `function_definition`, `class_definition`, and `decorated_definition` nodes map to functions/classes. Docstrings remain part of the chunk body so embeddings can learn semantics.
+- **JavaScript / TypeScript** – both share the same parser. Arrow functions, generator functions, and class components map to `function` or `method` chunk types while JSX/TSX syntax passes through untouched because tree-sitter scopes it.
+- **Java** – classes, interfaces, enums, records, constructors, and methods are emitted; nested types become individual chunks so embeddings understand inner classes.
+- **Rust** – `function_item`, `impl_item`, `trait_item`, `struct_item`, and `enum_item` help represent inherent impls and trait impls separately.
+- **C / C++** – heuristics decide which parser to use. Structs, enums, classes, namespaces, and free functions become chunks even when located in headers.
+- **Ruby** – class/module nesting plus singleton methods are preserved by `ruby.scm` so DSL-heavy code (e.g., Rails) still chunks around method boundaries.
+- **PHP** – functions, methods, classes, interfaces, traits, and enums are supported; doc comments and attributes remain in `Chunk.Code`.
+- **Scala** – `function_definition`, `class_definition`, `trait_definition`, and `object_definition` nodes emit chunks so both OO and functional constructs are indexed.
+
+## Testing Coverage
+
+- `internal/parser/extractor_test.go` – spot checks per-language node extraction helpers.
+- `internal/chunker/semantic_test.go` – validates Markdown + Go/Python behavior and metadata wiring.
+- `internal/chunker/multilang_test.go` – integration tests for all 11 languages using real fixture directories. Each test verifies minimum chunk counts, chunk types, metadata presence, and ensures every chunk has a non-empty body.
+- `internal/chunker/integration_test.go` – runs the semantic chunker across portions of this repository to catch regressions.
+
+Running all parser + chunker tests:
+
 ```bash
-go test ./internal/parser/...
-go test ./internal/chunker/...
+go test ./internal/parser/... ./internal/chunker/...
 ```
 
-## Examples from Codebase
-
-### Example 1: Extracting `Embed` Method
-
-**Source** (internal/embeddings/ollama.go:46-78):
-```go
-func (c *OllamaClient) Embed(text string) ([]float64, error) {
-    reqBody := ollamaEmbedRequest{
-        Model:  c.model,
-        Prompt: text,
-    }
-    // ... HTTP request logic
-    return embedResp.Embedding, nil
-}
-```
-
-**Extracted Chunk**:
-```go
-{
-    ChunkType: "method",
-    Name:      "Embed",
-    Content:   "func (c *OllamaClient) Embed(text string) ([]float64, error) {...}",
-    StartLine: 46,
-    EndLine:   78,
-    Metadata: {
-        "receiver":      "*OllamaClient",
-        "receiver_type": "OllamaClient",
-        "params":        "text string",
-        "returns":       "([]float64, error)",
-        "package":       "embeddings",
-    },
-}
-```
-
-### Example 2: Extracting `Chunk` Struct
-
-**Source** (internal/chunker/chunker.go:13-23):
-```go
-type Chunk struct {
-    ID        string
-    FilePath  string
-    LineStart int
-    LineEnd   int
-    Language  string
-    Code      string
-    ChunkType string
-    Name      string
-    Metadata  map[string]string
-}
-```
-
-**Extracted Chunk**:
-```go
-{
-    ChunkType: "struct",
-    Name:      "Chunk",
-    Content:   "type Chunk struct {...}",
-    StartLine: 13,
-    EndLine:   23,
-    Metadata: {
-        "fields": "ID string, FilePath string, LineStart int, ...",
-        "package": "chunker",
-    },
-}
-```
-
-## Benefits for Search Quality
-
-Semantic chunking dramatically improves search results:
-
-**Query: "embed function"**
-
-Without semantic chunking:
-```
-Result 1: "func (c *Ollama"  // Truncated
-Result 2: "Client) Embed(tex" // Truncated
-Result 3: "t string) ([]floa" // Truncated
-```
-
-With semantic chunking:
-```
-Result 1: "func (c *OllamaClient) Embed(text string) ([]float64, error) {...}"
-  - Complete function
-  - Context: OllamaClient receiver
-  - Clear purpose: Generate embeddings
-```
-
-Better chunks → Better embeddings → Better search results
+These tests should pass before asserting that semantic chunking handles a new language or grammar update.
