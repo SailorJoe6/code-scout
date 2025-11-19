@@ -1,5 +1,6 @@
 # Binaries (only in root directory)
 /code-scout
+cmd/tei-wrapper/tei-wrapper
 *.exe
 *.dll
 *.so
