@@ -61,6 +61,13 @@ type Server struct {
 	client       *http.Client
 	mu           sync.RWMutex  // Protects model switching
 	switching    bool          // True during model switch
+
+	// Idle-based preloading (Slice 3 - sequential, no RAM penalty)
+	idlePreload     bool          // Enable idle preloading
+	idleTimeout     time.Duration // Time before triggering preload
+	lastRequestTime time.Time     // Last request timestamp
+	preferredModel  string        // Model to preload when idle (code model)
+	idleTimer       *time.Timer   // Timer for idle detection
 }
 
 func main() {
@@ -68,7 +75,9 @@ func main() {
 	port := flag.Int("port", 11434, "Port to listen on (Ollama-compatible default)")
 	teiPort := flag.Int("tei-port", 8080, "TEI internal port")
 	teiBinary := flag.String("tei-binary", "text-embeddings-router", "Path to TEI binary")
-	model := flag.String("model", "nomic-ai/nomic-embed-text-v1.5", "Initial model to load")
+	model := flag.String("model", "nomic-ai/nomic-embed-code", "Initial model (default: code model for faster subsequent runs)")
+	idlePreload := flag.Bool("idle-preload", false, "Enable idle-based preloading of code model")
+	idleTimeout := flag.Duration("idle-timeout", 30*time.Second, "Idle time before preloading code model")
 	flag.Parse()
 
 	// Create server
@@ -81,6 +90,9 @@ func main() {
 		client: &http.Client{
 			Timeout: 120 * time.Second, // Long timeout for large batches
 		},
+		idlePreload:    *idlePreload,
+		idleTimeout:    *idleTimeout,
+		preferredModel: "nomic-ai/nomic-embed-code", // Always prefer code model when idle
 	}
 
 	// Start TEI process
@@ -133,7 +145,7 @@ func (s *Server) startTEIWithModel(ctx context.Context, model string) error {
 	s.teiCmd = exec.CommandContext(ctx, s.teiBinary,
 		"--model-id", model,
 		"--port", fmt.Sprintf("%d", s.teiPort),
-		"--max-batch-tokens", "16384", // Reasonable default
+		"--max-batch-tokens", "32768", // Reasonable default
 	)
 
 	// Capture output for debugging
@@ -301,6 +313,9 @@ func (s *Server) handleEmbeddings(w http.ResponseWriter, r *http.Request) {
 	// Return response
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(resp)
+
+	// Reset idle timer for preloading
+	s.resetIdleTimer()
 }
 
 // getEmbeddings sends a request to TEI and returns the embeddings
@@ -378,4 +393,44 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 		"status": "ok",
 		"model":  currentModel,
 	})
+}
+
+// resetIdleTimer resets the idle timer after each request
+func (s *Server) resetIdleTimer() {
+	if !s.idlePreload {
+		return
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.lastRequestTime = time.Now()
+
+	// Stop existing timer if any
+	if s.idleTimer != nil {
+		s.idleTimer.Stop()
+	}
+
+	// Start new timer
+	s.idleTimer = time.AfterFunc(s.idleTimeout, func() {
+		s.onIdleTimeout()
+	})
+}
+
+// onIdleTimeout is called when the system has been idle
+func (s *Server) onIdleTimeout() {
+	s.mu.RLock()
+	currentModel := s.currentModel
+	preferredModel := s.preferredModel
+	s.mu.RUnlock()
+
+	// If not on preferred model, switch to it
+	if currentModel != preferredModel {
+		log.Printf("System idle, preloading preferred model: %s", preferredModel)
+		if err := s.switchModel(preferredModel); err != nil {
+			log.Printf("Idle preload failed: %v", err)
+		} else {
+			log.Printf("Idle preload complete: %s ready for next run", preferredModel)
+		}
+	}
 }
