@@ -92,7 +92,7 @@ func main() {
 
 	// Wait for TEI to be ready
 	log.Printf("Waiting for TEI to be ready...")
-	if err := server.waitForTEI(30 * time.Second); err != nil {
+	if err := server.waitForTEI(90 * time.Second); err != nil {
 		log.Fatalf("TEI failed to start: %v", err)
 	}
 	log.Printf("TEI is ready!")
@@ -221,7 +221,7 @@ func (s *Server) switchModel(newModel string) error {
 	}
 
 	// Wait for new TEI to be ready
-	if err := s.waitForTEI(30 * time.Second); err != nil {
+	if err := s.waitForTEI(90 * time.Second); err != nil {
 		return fmt.Errorf("new TEI failed to start: %w", err)
 	}
 
