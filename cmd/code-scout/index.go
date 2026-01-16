@@ -97,10 +97,20 @@ and store them in a local LanceDB vector database (.code-scout/).`,
 			if err := store.DeleteChunksByFilePath(filesToDelete); err != nil {
 				return fmt.Errorf("failed to delete old chunks: %w", err)
 			}
+			// Remove deleted files from metadata
+			for _, filePath := range filesToDelete {
+				delete(metadata.FileModTimes, filePath)
+			}
 		}
 
-		// If nothing to index, we're done
+		// If nothing to index, save metadata (if we deleted files) and we're done
 		if len(filesToIndex) == 0 {
+			if len(filesToDelete) > 0 {
+				metadata.LastIndexTime = now
+				if err := store.SaveMetadata(metadata); err != nil {
+					return fmt.Errorf("failed to save metadata: %w", err)
+				}
+			}
 			fmt.Printf("✓ All files up to date. Indexing complete!\n")
 			return nil
 		}
@@ -272,13 +282,15 @@ func generateEmbeddingsWithDedup(client embeddings.Client, chunks []chunker.Chun
 	allEmbeddings := make([][]float64, len(chunks))
 
 	type job struct {
-		index int
-		text  string
+		index    int
+		text     string
+		filePath string
 	}
 
 	type result struct {
 		index     int
 		embedding []float64
+		filePath  string
 		err       error
 	}
 
@@ -302,12 +314,12 @@ func generateEmbeddingsWithDedup(client embeddings.Client, chunks []chunker.Chun
 				embeddings, err := client.EmbedMany(texts)
 				if err != nil {
 					for _, jb := range buffer {
-						results <- result{index: jb.index, err: err}
+						results <- result{index: jb.index, filePath: jb.filePath, err: err}
 					}
 					return false
 				}
 				for i, emb := range embeddings {
-					results <- result{index: buffer[i].index, embedding: emb}
+					results <- result{index: buffer[i].index, embedding: emb, filePath: buffer[i].filePath}
 				}
 				buffer = buffer[:0]
 				return true
@@ -328,8 +340,9 @@ func generateEmbeddingsWithDedup(client embeddings.Client, chunks []chunker.Chun
 	// Send jobs for unique chunks
 	for _, firstIdx := range hashToFirstIndex {
 		jobs <- job{
-			index: firstIdx,
-			text:  chunks[firstIdx].Code,
+			index:    firstIdx,
+			text:     chunks[firstIdx].Code,
+			filePath: chunks[firstIdx].FilePath,
 		}
 	}
 	close(jobs)
@@ -352,7 +365,9 @@ func generateEmbeddingsWithDedup(client embeddings.Client, chunks []chunker.Chun
 		completed++
 		if r.embedding != nil {
 			if completed == 1 || completed%50 == 0 || completed == uniqueCount {
-				fmt.Printf("  Generated %d/%d unique embeddings (dim: %d)\n", completed, uniqueCount, len(r.embedding))
+				percentage := float64(completed) / float64(uniqueCount) * 100
+				fmt.Printf("  [%d%%] %s - Generated %d/%d unique embeddings (dim: %d)\n",
+					int(percentage), r.filePath, completed, uniqueCount, len(r.embedding))
 			}
 		}
 		if completed == uniqueCount {
