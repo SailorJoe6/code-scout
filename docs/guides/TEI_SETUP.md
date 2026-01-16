@@ -558,16 +558,19 @@ lsof -ti:8001 | xargs kill
 
 ## What's Next?
 
-**✅ Completed (Slices 1-2):**
+**✅ Completed (Slices 1-3):**
 - TEI wrapper with OpenAI-compatible API
 - Model hot-swapping (automatic detection and restart)
 - Health endpoint with model status
+- Background pre-loading of preferred model on idle (optional)
+- 503 Service Unavailable response during model switches
+- Idle detection with configurable timeout
 
-**🚧 Coming Soon (Slices 3-4):**
-- Background pre-loading of next expected model (minimize switch delay)
-- Configuration file support
-- Request queuing during model switches
-- Enhanced error handling and logging
+**🚧 Future Enhancements (Slice 4):**
+- Configuration file support (YAML/TOML)
+- Request queuing during model switches (currently returns 503)
+- Enhanced error handling and retry logic
+- Metrics and monitoring endpoints
 
 **Future Ideas:**
 - Background daemon for automatic re-indexing

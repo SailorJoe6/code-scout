@@ -33,13 +33,14 @@ go build -o tei-wrapper .
 ### Basic Usage (Default Settings)
 
 ```bash
-# Start wrapper with default model (nomic-embed-text-v1.5)
+# Start wrapper with default model (nomic-embed-code)
 ./tei-wrapper
 
 # Wrapper will:
 # - Start TEI on port 8080 (internal)
 # - Listen on port 11434 (Ollama-compatible)
-# - Load nomic-ai/nomic-embed-text-v1.5 by default
+# - Load nomic-ai/nomic-embed-code by default
+# - Automatically switch models when requested via API
 ```
 
 ### Custom Model
@@ -62,8 +63,33 @@ go build -o tei-wrapper .
 -tei-binary string
     Path to TEI binary (default: "text-embeddings-router")
 -model string
-    Initial model to load (default: "nomic-ai/nomic-embed-text-v1.5")
+    Initial model to load (default: "nomic-ai/nomic-embed-code")
+-idle-preload bool
+    Enable idle-based preloading of code model (default: false)
+-idle-timeout duration
+    Idle time before preloading code model (default: 30s)
 ```
+
+### Idle Preloading
+
+The wrapper supports optional idle-based preloading to minimize model switch delays:
+
+```bash
+# Enable idle preload with 30-second timeout
+./tei-wrapper --idle-preload --idle-timeout 30s
+```
+
+**How it works:**
+1. After each request, the wrapper starts an idle timer
+2. If no requests arrive within the idle timeout period, it automatically switches to the preferred model (code model)
+3. This ensures the code model is ready for the next indexing run
+4. Reduces subsequent startup time to near-zero
+
+**When to use:**
+- ✅ Development workflows with periodic indexing
+- ✅ When you index code more frequently than docs
+- ❌ Production environments with constant traffic (no idle time)
+- ❌ When you need both models equally often
 
 ## API
 
@@ -105,13 +131,31 @@ OpenAI-compatible endpoint for generating embeddings.
 
 ### GET /health
 
-Health check endpoint.
+Health check endpoint with current model information.
 
-**Response:**
+**Response (Healthy):**
 ```json
 {
   "status": "ok",
-  "model": "nomic-ai/nomic-embed-text-v1.5"
+  "model": "nomic-ai/nomic-embed-code"
+}
+```
+
+**Response (Model Switching):**
+```json
+{
+  "status": "switching",
+  "model": "nomic-ai/nomic-embed-code",
+  "switching": true
+}
+```
+
+**Response (Unhealthy):**
+```json
+{
+  "status": "unhealthy",
+  "model": "nomic-ai/nomic-embed-code",
+  "error": "TEI is not responding"
 }
 ```
 
@@ -135,16 +179,21 @@ The wrapper is API-compatible with Ollama, so code-scout will work without any c
 
 ## Development Status
 
-**Current (Slice 1):**
+**Implemented (Slices 1-3):**
 - ✅ OpenAI-compatible /v1/embeddings endpoint
 - ✅ Basic TEI process management
-- ✅ Health check endpoint
+- ✅ Health check endpoint with model status
 - ✅ Request forwarding and response translation
+- ✅ Model hot-swapping (auto-restart TEI when model changes)
+- ✅ 503 Service Unavailable response during model switches
+- ✅ Background pre-loading of preferred model on idle (optional)
+- ✅ Idle detection with configurable timeout
 
-**Coming Next:**
-- ⏳ Slice 2: Model hot-swapping (auto-restart TEI when model changes)
-- ⏳ Slice 3: Background pre-loading of next expected model
-- ⏳ Slice 4: Configuration file, request queuing, enhanced error handling
+**Future Enhancements (Slice 4):**
+- ⏳ Configuration file support (YAML/TOML)
+- ⏳ Request queuing during model switches (currently returns 503)
+- ⏳ Enhanced error handling and retry logic
+- ⏳ Metrics and monitoring endpoints
 
 ## Troubleshooting
 
