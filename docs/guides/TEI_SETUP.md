@@ -556,24 +556,58 @@ lsof -ti:8001 | xargs kill
 - See [DEVELOPERS.md](../DEVELOPERS.md) for contributing to Code Scout
 - See [README.md](../../README.md) for general usage
 
+## Automation Tools
+
+Code Scout provides two tools to streamline your workflow:
+
+### TEI Wrapper
+
+The TEI wrapper provides Ollama-like model hot-swapping with better performance than Ollama:
+
+- **Single TEI process** - Lower memory usage (4-8GB vs 8-16GB for dual TEI)
+- **Automatic model switching** - Detects model changes and restarts TEI
+- **Optional preloading** - Switches to preferred model when idle
+- **OpenAI-compatible API** - Works with existing code
+
+**Learn more:** [TEI_WRAPPER.md](TEI_WRAPPER.md)
+
+### Background Daemon
+
+The background daemon automatically re-indexes your codebase when files change:
+
+- **Zero manual indexing** - AI agents just search, never index
+- **Always fresh results** - Automatic debouncing and incremental updates
+- **File watching** - Detects create, write, delete, and rename events
+- **Respects ignore patterns** - Uses `.gitignore` and `.code-scout-ignore`
+
+**Learn more:** [BACKGROUND_DAEMON.md](BACKGROUND_DAEMON.md)
+
+### Recommended Setup for AI Agents
+
+For the best experience with AI coding agents like Claude Code:
+
+```bash
+# 1. Start TEI wrapper (one-time setup)
+./tei-wrapper --idle-preload &
+
+# 2. Start background daemon (one-time per session)
+code-scout daemon start
+
+# 3. AI agents only use search (indexing is automatic)
+code-scout search "authentication"
+```
+
+This setup provides:
+- ✅ Automatic indexing on file changes
+- ✅ Automatic model switching (code vs docs)
+- ✅ Always fresh search results
+- ✅ Minimal memory usage (~4-8GB)
+- ✅ High performance (6-10 workers)
+
 ## What's Next?
 
-**✅ Completed (Slices 1-3):**
-- TEI wrapper with OpenAI-compatible API
-- Model hot-swapping (automatic detection and restart)
-- Health endpoint with model status
-- Background pre-loading of preferred model on idle (optional)
-- 503 Service Unavailable response during model switches
-- Idle detection with configurable timeout
-
-**🚧 Future Enhancements (Slice 4):**
-- Configuration file support (YAML/TOML)
-- Request queuing during model switches (currently returns 503)
-- Enhanced error handling and retry logic
-- Metrics and monitoring endpoints
-
-**Future Ideas:**
-- Background daemon for automatic re-indexing
-- Dual endpoint support (skip wrapper for max performance)
-- Automatic TEI detection and configuration
-- Built-in TEI process management commands
+**Related Documentation:**
+- [TEI_WRAPPER.md](TEI_WRAPPER.md) - TEI wrapper setup and usage
+- [BACKGROUND_DAEMON.md](BACKGROUND_DAEMON.md) - Background daemon for auto-indexing
+- [OLLAMA_SETUP.md](OLLAMA_SETUP.md) - Simpler alternative to TEI
+- [DEVELOPERS.md](../../DEVELOPERS.md) - Build and development setup

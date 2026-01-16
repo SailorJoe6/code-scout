@@ -347,11 +347,35 @@ Both Ollama and TEI use similar memory (~524MB for models), but:
 - Ollama has slightly higher overhead due to model switching
 - TEI keeps both models loaded (more consistent memory usage)
 
+## Background Daemon
+
+For an even better experience, use the **background indexing daemon** with Ollama:
+
+```bash
+# Start Ollama
+ollama serve
+
+# Start background daemon (auto-indexes on file changes)
+code-scout daemon start
+
+# Just search - indexing happens automatically!
+code-scout search "authentication"
+```
+
+**Benefits:**
+- ✅ Zero manual indexing
+- ✅ Always fresh search results
+- ✅ Perfect for AI agents (they just search, never index)
+- ✅ Automatic debouncing (waits for editing to finish)
+
+**Learn more:** [BACKGROUND_DAEMON.md](BACKGROUND_DAEMON.md)
+
 ## Next Steps
 
-- For better performance on M2, see [TEI_SETUP.md](TEI_SETUP.md)
-- For cloud hosting, see README.md configuration section
-- For contributing, see [DEVELOPERS.md](../DEVELOPERS.md)
+- **For better performance:** See [TEI_SETUP.md](TEI_SETUP.md) or [TEI_WRAPPER.md](TEI_WRAPPER.md)
+- **For automatic indexing:** See [BACKGROUND_DAEMON.md](BACKGROUND_DAEMON.md)
+- **For cloud hosting:** See README.md configuration section
+- **For contributing:** See [DEVELOPERS.md](../../DEVELOPERS.md)
 
 ## Summary
 
@@ -364,7 +388,12 @@ Both Ollama and TEI use similar memory (~524MB for models), but:
 **Switch to TEI when:**
 - You have a large codebase (>500 files)
 - You need fast indexing (3-4x speedup)
-- You're on Apple Silicon M2
-- You're comfortable with Rust compilation
+- You're on Apple Silicon M2 or have NVIDIA GPU
+- You're comfortable with more complex setup
 
-Both options produce identical search results - the only difference is indexing speed.
+**Add background daemon when:**
+- Working with AI coding agents
+- You want automatic re-indexing
+- You're tired of manually running `code-scout index`
+
+Both Ollama and TEI produce identical search results - the only differences are indexing speed and memory usage.

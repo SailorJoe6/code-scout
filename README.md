@@ -334,11 +334,92 @@ Code Scout works with any OpenAI-compatible embedding API endpoint. This include
    ./code-scout index --workers 6 --batch-size 6
    ```
 
-**Note:** Cloud hosting typically incurs costs based on usage. For free, self-hosted options see:
-- [TEI Setup Guide](docs/guides/TEI_SETUP.md) - Fast, optimized for M2/Apple Silicon
-- [Ollama Setup Guide](docs/guides/OLLAMA_SETUP.md) - Simple, works on all platforms
+**Note:** Cloud hosting typically incurs costs based on usage. For free, self-hosted options see below.
 
 Git already ignores `.code-scout.json`, so your API keys stay local and never get committed.
+
+## Self-Hosting Embedding Models (Recommended)
+
+For the best performance and cost (free!), self-host your embedding models using TEI (Text Embeddings Inference).
+
+### Recommended: TEI with Wrapper
+
+**Best for:** Most users, especially with AI coding agents
+
+TEI provides the fastest embedding generation with full GPU acceleration on all platforms:
+
+| Platform | Acceleration | Speed | Installation |
+|----------|-------------|-------|--------------|
+| **Mac (Apple Silicon)** | Metal | Very Fast | `brew install huggingface/tap/text-embeddings-inference` |
+| **Linux/Windows + NVIDIA** | CUDA | Blazing Fast | Docker with `--gpus all` |
+| **CPU-only** | None | Moderate | Docker CPU image |
+
+**Quick start:**
+
+```bash
+# 1. Install TEI (see platform-specific instructions in TEI_SETUP.md)
+brew install huggingface/tap/text-embeddings-inference  # macOS
+
+# 2. Build and start TEI wrapper (handles model switching)
+cd cmd/tei-wrapper
+go build -o tei-wrapper .
+./tei-wrapper --idle-preload &
+
+# 3. Start background daemon (auto-indexes on file changes)
+code-scout daemon start
+
+# 4. Just search! (indexing happens automatically)
+code-scout search "authentication"
+```
+
+**Features:**
+- ✅ **3-4x faster** than Ollama
+- ✅ **Automatic model switching** (code vs documentation)
+- ✅ **Background indexing** (no manual `code-scout index`)
+- ✅ **GPU acceleration** (Metal on Mac, CUDA on Linux/Windows)
+- ✅ **Lower memory** (4-8GB vs 8-16GB for dual TEI)
+
+**Documentation:**
+- [TEI Setup Guide](docs/guides/TEI_SETUP.md) - Install TEI for your platform
+- [TEI Wrapper Guide](docs/guides/TEI_WRAPPER.md) - Setup and usage
+- [Background Daemon Guide](docs/guides/BACKGROUND_DAEMON.md) - Auto-indexing
+
+### Alternative: Ollama
+
+**Best for:** Simplest setup, small repos, any platform
+
+Ollama is the easiest option but requires reduced concurrency (`--workers 2 --batch-size 2`):
+
+```bash
+# Install Ollama
+brew install ollama  # or see https://ollama.com/download
+
+# Pull model
+ollama pull nomic-embed-text
+
+# Use with code-scout (reduced concurrency required)
+code-scout index --workers 2 --batch-size 2
+```
+
+**Trade-offs:**
+- ✅ Dead simple setup
+- ✅ Works on all platforms
+- ⚠️ 2-3x slower than TEI
+- ⚠️ Limited concurrency (max 2 workers)
+
+**Documentation:**
+- [Ollama Setup Guide](docs/guides/OLLAMA_SETUP.md) - Installation and configuration
+
+### Comparison
+
+| Feature | TEI + Wrapper | Ollama |
+|---------|--------------|--------|
+| **Speed** | Fast (3-4x faster) | Slow |
+| **Concurrency** | High (6-10 workers) | Low (2 workers) |
+| **Memory** | 4-8GB | 4-8GB |
+| **Setup** | Moderate | Very Easy |
+| **GPU** | ✅ Metal/CUDA | ✅ Metal/CUDA |
+| **Auto Model Switching** | ✅ Yes | ✅ Yes |
 
 ## Background Indexing Daemon
 
@@ -394,7 +475,7 @@ With the daemon running, AI coding agents can:
 - Skip manual `code-scout index` commands
 - Get instant semantic search across the latest code
 
-**Note**: The daemon currently uses the default embedding endpoint configuration. TEI wrapper integration for automatic model management is planned for a future release.
+**Documentation:** See [Background Daemon Guide](docs/guides/BACKGROUND_DAEMON.md) for complete setup and usage instructions.
 
 ## Getting Started
 

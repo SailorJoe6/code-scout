@@ -180,21 +180,109 @@ dyld: Library not loaded: liblancedb_go.dylib
 ```
 code-scout/
 ├── cmd/
-│   └── code-scout/        # CLI entry point
-│       ├── main.go
-│       ├── index.go       # Index command
-│       └── search.go      # Search command
+│   ├── code-scout/        # Main CLI entry point
+│   │   ├── main.go        # Root command
+│   │   ├── index.go       # Index command
+│   │   ├── search.go      # Search command
+│   │   └── daemon.go      # Background daemon commands
+│   └── tei-wrapper/       # TEI wrapper (model hot-swapping)
+│       ├── main.go        # Wrapper server
+│       └── README.md      # Developer documentation
 ├── internal/
-│   ├── scanner/           # File scanning
-│   ├── chunker/           # Code chunking
-│   ├── embeddings/        # Ollama client
-│   └── storage/           # LanceDB storage
-├── include/               # C headers (from download script)
-├── lib/                   # Native libraries (from download script)
-├── .code-scout/           # Local vector database
+│   ├── scanner/           # File scanning with ignore patterns
+│   ├── chunker/           # Semantic code chunking (Tree-sitter)
+│   ├── embeddings/        # Embedding clients (OpenAI-compatible)
+│   └── storage/           # LanceDB storage layer
+├── docs/
+│   └── guides/            # User documentation
+│       ├── TEI_SETUP.md           # TEI installation guide
+│       ├── TEI_WRAPPER.md         # TEI wrapper guide
+│       ├── BACKGROUND_DAEMON.md   # Background daemon guide
+│       └── OLLAMA_SETUP.md        # Ollama setup guide
+├── include/               # C headers (from LanceDB)
+├── lib/                   # Native libraries (from LanceDB)
+├── .code-scout/           # Local vector database (runtime)
 ├── test_data/             # Test fixtures
 └── examples/              # LanceDB usage examples
 ```
+
+### TEI Wrapper Development
+
+The TEI wrapper is a standalone Go HTTP server that provides OpenAI-compatible API access to TEI with automatic model hot-swapping.
+
+**Build the wrapper:**
+```bash
+cd cmd/tei-wrapper
+go build -o tei-wrapper .
+```
+
+**Run locally:**
+```bash
+# Start with default settings (port 11434, TEI on 8080)
+./tei-wrapper
+
+# With custom settings
+./tei-wrapper --port 8081 --model nomic-ai/nomic-embed-code --idle-preload
+```
+
+**Run tests:**
+```bash
+cd cmd/tei-wrapper
+go test -v
+```
+
+**Key files:**
+- `cmd/tei-wrapper/main.go` - Main server implementation
+- `cmd/tei-wrapper/server_test.go` - Unit tests
+- `cmd/tei-wrapper/mock_tei_test.go` - Mock TEI server for testing
+- `cmd/tei-wrapper/README.md` - Developer documentation
+
+**See also:**
+- [TEI Wrapper Guide](docs/guides/TEI_WRAPPER.md) - User documentation
+
+### Background Daemon Development
+
+The background daemon is built into the `code-scout` CLI and automatically re-indexes the codebase when files change.
+
+**Run daemon locally:**
+```bash
+# Start daemon
+./code-scout daemon start
+
+# Check status
+./code-scout daemon status
+
+# View logs
+./code-scout daemon logs
+
+# Stop daemon
+./code-scout daemon stop
+```
+
+**Development:**
+```bash
+# Run daemon in foreground (for debugging)
+cd cmd/code-scout
+go run . daemon run
+```
+
+**Testing:**
+```bash
+# Run daemon tests
+cd cmd/code-scout
+go test -v -run TestDaemon
+```
+
+**Key files:**
+- `cmd/code-scout/daemon.go` - Daemon implementation
+- `cmd/code-scout/daemon_test.go` - Tests
+- `internal/scanner/` - File scanning with ignore patterns
+
+**Dependencies:**
+- [fsnotify](https://github.com/fsnotify/fsnotify) - Cross-platform file system notifications
+
+**See also:**
+- [Background Daemon Guide](docs/guides/BACKGROUND_DAEMON.md) - User documentation
 
 ### Issue Tracking
 
