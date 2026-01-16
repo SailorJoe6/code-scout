@@ -318,13 +318,111 @@ After: 4 results
   - Other code        (score: 4000)
 ```
 
-**Code**: `deduplicateResults()` at cmd/code-scout/search.go:123-165
+**Code**: `deduplicateResults()` at cmd/code-scout/search.go:443-485
 
-### 5. Output Formatting
+### 5. Reranking (Optional)
 **Component**: Search Command
 
 ```
 Input: []SearchResult (deduplicated)
+       Config: RerankModel, RerankTopK
+       ↓
+Decision: RerankModel configured?
+          ↓
+       Yes                    No
+        ↓                      ↓
+    Rerank top-K          Skip reranking
+    results                    ↓
+        ↓                      ↓
+    Generate query         Return results
+    embedding with         as-is
+    rerank model               ↓
+        ↓                      ↓
+    Generate candidate         │
+    embeddings for             │
+    top-K results              │
+        ↓                      │
+    Calculate cosine           │
+    similarity scores          │
+        ↓                      │
+    Sort by rerank             │
+    score (descending)         │
+        ↓                      │
+    Add rerank_score           │
+    to results                 │
+        ↓                      │
+        └──────────┬───────────┘
+                   ↓
+Output: []SearchResult (with optional rerank_score)
+```
+
+**Why Reranking?**
+
+Vector search uses distance in embedding space, which can miss nuances in the query. Reranking:
+- Generates a fresh embedding of the query+result context
+- Uses a potentially different model optimized for relevance
+- Applies semantic similarity directly between query and result
+- Improves precision for the top-K results
+
+**Example Configuration:**
+```json
+{
+  "rerank_model": "code-scout-text",
+  "rerank_top_k": 25
+}
+```
+
+**Reranking Process:**
+
+1. **Context Building**: Each result is formatted with metadata:
+   ```
+   File: internal/storage/lancedb.go
+   Language: go
+   Chunk: function
+
+   func Search(embedding []float64, limit int) ([]map[string]interface{}, error) {
+       ...
+   }
+   ```
+
+2. **Embedding Generation**: Generate embeddings for:
+   - Query string (once)
+   - Each of top-K result contexts (in batch)
+
+3. **Similarity Calculation**: For each result:
+   ```
+   rerank_score = cosine_similarity(query_embedding, result_embedding)
+   ```
+
+4. **Reordering**: Sort top-K by rerank_score (higher is better), keeping remaining results in original order
+
+**Result Structure with Reranking:**
+```go
+SearchResult{
+    FilePath:    "internal/storage/lancedb.go",
+    Code:        "func Search...",
+    Score:       0.123,        // Original vector distance
+    RerankScore: &0.856,       // Optional: cosine similarity
+}
+```
+
+**Performance Considerations:**
+- Only reranksconfigured top-K results (default: same as --limit)
+- Batch embedding generation for efficiency
+- Reranking adds ~100-200ms for top-10 results
+- Use larger RerankTopK to improve coverage (e.g., rerank top-25, return top-10)
+
+**Code**:
+- `rerankTopK()` at cmd/code-scout/search.go:322-334
+- `rerankResults()` at cmd/code-scout/search.go:336-383
+- `buildRerankText()` at cmd/code-scout/search.go:385-419
+- `cosineSimilarity()` at cmd/code-scout/search.go:421-436
+
+### 6. Output Formatting
+**Component**: Search Command
+
+```
+Input: []SearchResult (with optional rerank_score)
        Output format (JSON or human-readable)
        ↓
 Decision: --json flag?
@@ -333,16 +431,59 @@ Decision: --json flag?
         ↓                      ↓
     JSON format          Human-readable
     {                    "Found X unique
-      "query": "...",     results (from Y
-      "results": [...]    total)..."
-    }                          ↓
-        ↓                      ↓
+      "query": "...",     results (reranked
+      "rerank": {         by model, from Y
+        "model": "...",   total)..."
+        "top_k": 25           ↓
+      },                  Show vector and
+      "results": [{       rerank scores
+        "score": 0.123,   for each result
+        "rerank_score":        ↓
+          0.856,               ↓
+        ...                    │
+      }]                       │
+    }                          │
+        ↓                      │
         └──────────┬───────────┘
                    ↓
 Output: Printed to stdout
 ```
 
-**Code**: cmd/code-scout/search.go:72-91
+**JSON Output with Reranking:**
+```json
+{
+  "query": "error handling",
+  "mode": "code",
+  "total_results": 25,
+  "returned": 10,
+  "rerank": {
+    "model": "code-scout-text",
+    "top_k": 25
+  },
+  "results": [
+    {
+      "file_path": "internal/storage/lancedb.go",
+      "score": 0.123,
+      "rerank_score": 0.856,
+      ...
+    }
+  ]
+}
+```
+
+**Human-Readable Output with Reranking:**
+```
+Found 10 unique code results (reranked by code-scout-text, from 25 total) for: error handling
+
+1. internal/storage/lancedb.go:45-67 (vector: 0.1234, rerank: 0.8560)
+   Language: go | Source: code | Chunk: function
+
+   func Search(embedding []float64, limit int) ([]map[string]interface{}, error) {
+       ...
+   }
+```
+
+**Code**: cmd/code-scout/search.go:80-127
 
 ## Data Transformations Summary
 
@@ -374,6 +515,8 @@ Query Embedding []float64[3584]
 Raw Results (with duplicates)
     ↓ [Format + Deduplicate]
 SearchResults (unique)
+    ↓ [Optional: Reranking]
+SearchResults (with rerank_score)
     ↓ [JSON/Human Format]
 Output
 ```

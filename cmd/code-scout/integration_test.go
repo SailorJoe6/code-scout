@@ -4,11 +4,13 @@ import (
 	"bytes"
 	"encoding/json"
 	"io"
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/jlanders/code-scout/internal/config"
 	"github.com/jlanders/code-scout/internal/embeddings"
 )
 
@@ -48,11 +50,14 @@ func installFakeEmbeddings(t *testing.T) {
 	docsClient := &fakeEmbeddingClient{offset: 1000}
 	prevCode := newCodeEmbeddingClient
 	prevDocs := newDocsEmbeddingClient
+	prevRerank := newRerankEmbeddingClient
 	newCodeEmbeddingClient = func() embeddings.Client { return codeClient }
 	newDocsEmbeddingClient = func() embeddings.Client { return docsClient }
+	newRerankEmbeddingClient = func() embeddings.Client { return &fakeEmbeddingClient{offset: 5000} }
 	t.Cleanup(func() {
 		newCodeEmbeddingClient = prevCode
 		newDocsEmbeddingClient = prevDocs
+		newRerankEmbeddingClient = prevRerank
 	})
 }
 
@@ -116,6 +121,52 @@ This section explains the architecture.
 	}
 	if !foundDocs || !foundCode {
 		t.Fatalf("hybrid search did not include both docs and code results")
+	}
+}
+
+func TestSearchReranksTopK(t *testing.T) {
+	installFakeEmbeddings(t)
+	workDir := t.TempDir()
+	writeTestFile(t, workDir, "main.go", `package main
+
+func Add(a, b int) int {
+	return a + b
+}
+`)
+	writeTestFile(t, workDir, "utils.go", `package main
+
+func Multiply(a, b int) int {
+	return a * b
+}
+`)
+
+	prevConfig := globalConfig
+	cfg := config.Default()
+	cfg.RerankModel = "test-rerank"
+	cfg.RerankTopK = 2
+	globalConfig = cfg
+	t.Cleanup(func() {
+		globalConfig = prevConfig
+	})
+
+	runInDir(t, workDir, func() error {
+		indexCmd.Flags().Set("workers", "2")
+		indexCmd.Flags().Set("batch-size", "2")
+		return indexCmd.RunE(indexCmd, []string{})
+	})
+
+	results := runSearchJSON(t, workDir, "math operations", modeCode)
+	if len(results.Results) < 2 {
+		t.Fatalf("expected at least 2 results, got %d", len(results.Results))
+	}
+	if results.Results[0].RerankScore == nil || results.Results[1].RerankScore == nil {
+		t.Fatalf("expected rerank scores on top results")
+	}
+	if *results.Results[0].RerankScore+1e-9 < *results.Results[1].RerankScore {
+		t.Fatalf("expected reranked results to be sorted by descending score")
+	}
+	if math.IsNaN(*results.Results[0].RerankScore) || math.IsNaN(*results.Results[1].RerankScore) {
+		t.Fatalf("expected rerank scores to be valid numbers")
 	}
 }
 

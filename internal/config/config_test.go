@@ -18,6 +18,12 @@ func TestDefault(t *testing.T) {
 	if cfg.TextModel != "code-scout-text" {
 		t.Errorf("expected default text model code-scout-text, got %s", cfg.TextModel)
 	}
+	if cfg.RerankModel != "" {
+		t.Errorf("expected default rerank model to be empty, got %s", cfg.RerankModel)
+	}
+	if cfg.RerankTopK != 0 {
+		t.Errorf("expected default rerank_top_k to be 0, got %d", cfg.RerankTopK)
+	}
 }
 
 func TestLoadFromFile(t *testing.T) {
@@ -29,7 +35,9 @@ func TestLoadFromFile(t *testing.T) {
 	testConfig := `{
   "endpoint": "http://custom:8080",
   "code_model": "custom-code",
-  "text_model": "custom-text"
+  "text_model": "custom-text",
+  "rerank_model": "custom-rerank",
+  "rerank_top_k": 25
 }`
 	if err := os.WriteFile(configPath, []byte(testConfig), 0644); err != nil {
 		t.Fatalf("failed to write test config: %v", err)
@@ -50,6 +58,12 @@ func TestLoadFromFile(t *testing.T) {
 	if cfg.TextModel != "custom-text" {
 		t.Errorf("expected text model custom-text, got %s", cfg.TextModel)
 	}
+	if cfg.RerankModel != "custom-rerank" {
+		t.Errorf("expected rerank model custom-rerank, got %s", cfg.RerankModel)
+	}
+	if cfg.RerankTopK != 25 {
+		t.Errorf("expected rerank top k 25, got %d", cfg.RerankTopK)
+	}
 }
 
 func TestLoadFromFile_NotExists(t *testing.T) {
@@ -65,7 +79,9 @@ func TestLoadFromFile_NotExists(t *testing.T) {
 func TestMergeConfig(t *testing.T) {
 	dst := Default()
 	src := &Config{
-		Endpoint: "http://custom:8080",
+		Endpoint:    "http://custom:8080",
+		RerankModel: "custom-rerank",
+		RerankTopK:  20,
 		// CodeModel and TextModel left empty
 	}
 
@@ -81,6 +97,12 @@ func TestMergeConfig(t *testing.T) {
 	if dst.TextModel != "code-scout-text" {
 		t.Errorf("expected default text model, got %s", dst.TextModel)
 	}
+	if dst.RerankModel != "custom-rerank" {
+		t.Errorf("expected rerank model custom-rerank, got %s", dst.RerankModel)
+	}
+	if dst.RerankTopK != 20 {
+		t.Errorf("expected rerank top k 20, got %d", dst.RerankTopK)
+	}
 }
 
 func TestSave(t *testing.T) {
@@ -88,9 +110,11 @@ func TestSave(t *testing.T) {
 	configPath := filepath.Join(tempDir, "subdir", "config.json")
 
 	cfg := &Config{
-		Endpoint:  "http://test:9000",
-		CodeModel: "test-code",
-		TextModel: "test-text",
+		Endpoint:    "http://test:9000",
+		CodeModel:   "test-code",
+		TextModel:   "test-text",
+		RerankModel: "test-rerank",
+		RerankTopK:  30,
 	}
 
 	if err := cfg.Save(configPath); err != nil {
@@ -117,6 +141,12 @@ func TestSave(t *testing.T) {
 	if loaded.TextModel != cfg.TextModel {
 		t.Errorf("expected text model %s, got %s", cfg.TextModel, loaded.TextModel)
 	}
+	if loaded.RerankModel != cfg.RerankModel {
+		t.Errorf("expected rerank model %s, got %s", cfg.RerankModel, loaded.RerankModel)
+	}
+	if loaded.RerankTopK != cfg.RerankTopK {
+		t.Errorf("expected rerank top k %d, got %d", cfg.RerankTopK, loaded.RerankTopK)
+	}
 }
 
 func TestValidate(t *testing.T) {
@@ -133,18 +163,22 @@ func TestValidate(t *testing.T) {
 		{
 			name: "valid https endpoint",
 			config: &Config{
-				Endpoint:  "https://api.example.com",
-				CodeModel: "model1",
-				TextModel: "model2",
+				Endpoint:    "https://api.example.com",
+				CodeModel:   "model1",
+				TextModel:   "model2",
+				RerankModel: "model3",
+				RerankTopK:  15,
 			},
 			expectErr: false,
 		},
 		{
 			name: "endpoint with trailing slash",
 			config: &Config{
-				Endpoint:  "http://localhost:11434/",
-				CodeModel: "model1",
-				TextModel: "model2",
+				Endpoint:    "http://localhost:11434/",
+				CodeModel:   "model1",
+				TextModel:   "model2",
+				RerankModel: "model3",
+				RerankTopK:  15,
 			},
 			expectErr: false,
 		},
@@ -181,6 +215,17 @@ func TestValidate(t *testing.T) {
 				Endpoint:  "http://localhost:11434",
 				CodeModel: "model1",
 				TextModel: "",
+			},
+			expectErr: true,
+		},
+		{
+			name: "negative rerank top k",
+			config: &Config{
+				Endpoint:    "http://localhost:11434",
+				CodeModel:   "model1",
+				TextModel:   "model2",
+				RerankModel: "model3",
+				RerankTopK:  -1,
 			},
 			expectErr: true,
 		},

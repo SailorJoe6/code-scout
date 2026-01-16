@@ -20,15 +20,15 @@ Code Scout is a semantic code search tool built on four core principles:
                               │
         ┌─────────────────────┼─────────────────────┐
         │                     │                     │
-┌───────▼────────┐   ┌────────▼────────┐   ┌───────▼────────┐
-│    Scanner     │   │    Chunker      │   │   Embeddings   │
-│  (internal/    │   │  (internal/     │   │  (internal/    │
-│   scanner)     │   │   chunker)      │   │   embeddings)  │
-│                │   │                 │   │                │
-│ Find code      │   │ Parse with      │   │ Generate with  │
-│ files          │   │ tree-sitter     │   │ Ollama         │
-│                │   │ Extract chunks  │   │ Deduplicate    │
-└────────────────┘   └─────────────────┘   └────────────────┘
+┌───────▼────────┐   ┌────────▼────────┐   ┌────────▼────────┐
+│    Scanner     │   │    Chunker      │   │    Embeddings   │
+│  (internal/    │   │  (internal/     │   │   (internal/    │
+│   scanner)     │   │   chunker)      │   │    embeddings)  │
+│                │   │                 │   │                 │
+│ Find code      │   │ Parse with      │   │  Generate with  │
+│ files          │   │ tree-sitter     │   │  Ollama         │
+│                │   │ Extract chunks  │   │  Deduplicate    │
+└────────────────┘   └─────────────────┘   └─────────────────┘
                               │
                      ┌────────▼────────┐
                      │     Parser      │

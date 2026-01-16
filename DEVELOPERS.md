@@ -31,6 +31,14 @@ This creates:
 - `lib/{platform}_{arch}/` - Platform-specific native libraries
 - `include/lancedb.h` - Required C header file
 
+**Important:** After downloading, fix the hardcoded install_name paths in macOS dylibs:
+
+```bash
+./fix-dylib-paths.sh
+```
+
+This fixes the install_name to use `@rpath` instead of the hardcoded CI build paths.
+
 #### 2. Build the Project (per-platform bundles)
 
 The build now outputs a self-contained bundle for each platform under `dist/code-scout-<os>_<arch>/` and also produces a matching `code-scout-<os>_<arch>.tar.gz` archive for distribution.
@@ -90,14 +98,40 @@ After making code changes, simply run:
 
 #### Running Tests
 
-The build script sets environment variables for the current shell session only. For tests, you can source the script's logic or set the flags manually:
+**Recommended:** Use the Makefile for automatic platform detection and CGO configuration:
 
 ```bash
-# macOS example (adjust for your platform)
-export CGO_CFLAGS="-I$(pwd)/include"
-export CGO_LDFLAGS="-L$(pwd)/lib/darwin_arm64 -llancedb_go -framework Security -framework CoreFoundation"
+# Run all tests
+make test
 
-go test ./...
+# Run tests with verbose output
+make test-verbose
+
+# Run tests with coverage report
+make test-coverage
+
+# Run only integration tests
+make test-integration
+
+# See all available targets
+make help
+```
+
+The Makefile automatically:
+- Detects your platform (darwin_arm64, darwin_amd64, linux_amd64)
+- Sets correct CGO_CFLAGS and CGO_LDFLAGS
+- Sets library paths (DYLD_LIBRARY_PATH or LD_LIBRARY_PATH)
+- Excludes example code from tests
+
+**Alternative:** If you prefer to run tests manually without the Makefile:
+
+```bash
+# macOS Apple Silicon example
+export CGO_CFLAGS="-I$(pwd)/include"
+export CGO_LDFLAGS="-L$(pwd)/lib/darwin_arm64 -llancedb_go -framework Security -framework CoreFoundation -Wl,-rpath,$(pwd)/lib/darwin_arm64"
+export DYLD_LIBRARY_PATH="$(pwd)/lib/darwin_arm64:${DYLD_LIBRARY_PATH}"
+
+go test $(go list ./... | grep -v /examples/)
 ```
 
 ### Common Issues
@@ -110,7 +144,18 @@ Undefined symbols for architecture arm64:
   "_simple_lancedb_connect", referenced from:
 ```
 
-**Solution:** You forgot to set `CGO_LDFLAGS`. See step 2 above.
+**Solution:**
+- Use `make test` which sets CGO flags automatically
+- Or manually set `CGO_LDFLAGS` as shown in the manual testing section
+
+#### "Library not loaded" with hardcoded CI path
+
+**Symptom:**
+```
+dyld: Library not loaded: /Users/runner/work/lancedb-go/lancedb-go/rust/target/...
+```
+
+**Solution:** Run `./fix-dylib-paths.sh` to fix the install_name in downloaded dylibs. This is a one-time fix needed after downloading the libraries.
 
 #### "lancedb.h: No such file or directory"
 

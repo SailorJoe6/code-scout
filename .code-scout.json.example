@@ -2,5 +2,7 @@
   "endpoint": "https://api.provider.com/v1",
   "api_key": "your-api-key-here",
   "code_model": "provider-code-embedding-model",
-  "text_model": "provider-text-embedding-model"
+  "text_model": "provider-text-embedding-model",
+  "rerank_model": "provider-rerank-model",
+  "rerank_top_k": 50
 }

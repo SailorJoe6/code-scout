@@ -186,7 +186,9 @@ Create a JSON file with the following structure:
   "endpoint": "http://localhost:11434",
   "api_key": "",
   "code_model": "code-scout-code",
-  "text_model": "code-scout-text"
+  "text_model": "code-scout-text",
+  "rerank_model": "",
+  "rerank_top_k": 0
 }
 ```
 
@@ -195,6 +197,8 @@ Create a JSON file with the following structure:
 - `api_key`: (Optional) API key for authentication. Sent as `Authorization: Bearer <api_key>` header
 - `code_model`: Model name to use for code embeddings
 - `text_model`: Model name to use for documentation embeddings
+- `rerank_model`: (Optional) Model name to use for reranking top results
+- `rerank_top_k`: (Optional) Number of top results to rerank (defaults to search `--limit` when `rerank_model` is set)
 
 ### Example Configurations
 
@@ -203,7 +207,9 @@ Create a JSON file with the following structure:
 {
   "endpoint": "http://localhost:11434",
   "code_model": "code-scout-code",
-  "text_model": "code-scout-text"
+  "text_model": "code-scout-text",
+  "rerank_model": "",
+  "rerank_top_k": 0
 }
 ```
 
@@ -213,7 +219,9 @@ Create a JSON file with the following structure:
   "endpoint": "https://api.provider.com/v1",
   "api_key": "your-api-key",
   "code_model": "provider-code-model",
-  "text_model": "provider-text-model"
+  "text_model": "provider-text-model",
+  "rerank_model": "provider-rerank-model",
+  "rerank_top_k": 50
 }
 ```
 
@@ -222,7 +230,9 @@ Create a JSON file with the following structure:
 {
   "endpoint": "http://my-gpu-server:11434",
   "code_model": "code-scout-code",
-  "text_model": "code-scout-text"
+  "text_model": "code-scout-text",
+  "rerank_model": "code-scout-text",
+  "rerank_top_k": 25
 }
 ```
 
@@ -249,7 +259,9 @@ cat > ~/.code-scout/config.json << 'EOF'
 {
   "endpoint": "http://localhost:11434",
   "code_model": "code-scout-code",
-  "text_model": "code-scout-text"
+  "text_model": "code-scout-text",
+  "rerank_model": "code-scout-text",
+  "rerank_top_k": 25
 }
 EOF
 
@@ -259,7 +271,9 @@ cat > .code-scout.json << 'EOF'
   "endpoint": "https://api.provider.com/v1",
   "api_key": "your-api-key",
   "code_model": "provider-code-model",
-  "text_model": "provider-text-model"
+  "text_model": "provider-text-model",
+  "rerank_model": "provider-rerank-model",
+  "rerank_top_k": 50
 }
 EOF
 ```

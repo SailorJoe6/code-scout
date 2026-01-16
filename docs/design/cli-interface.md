@@ -167,22 +167,54 @@ Designed for easy parsing:
 ```json
 {
   "mode": "code",
-  "query": "...",
-  "total_results": 15,
+  "query": "error handling",
+  "total_results": 25,
   "returned": 10,
   "results": [
     {
-      "chunk_id": "...",
-      "file_path": "...",
+      "chunk_id": "uuid-abc-123",
+      "file_path": "internal/storage/lancedb.go",
       "line_start": 123,
       "line_end": 145,
       "language": "go",
-      "code": "...",
-      "score": 1234.5678
+      "code": "func Search...",
+      "score": 0.1234
     }
   ]
 }
 ```
+
+**With Reranking Enabled:**
+
+```json
+{
+  "mode": "code",
+  "query": "error handling",
+  "total_results": 25,
+  "returned": 10,
+  "rerank": {
+    "model": "code-scout-text",
+    "top_k": 25
+  },
+  "results": [
+    {
+      "chunk_id": "uuid-abc-123",
+      "file_path": "internal/storage/lancedb.go",
+      "line_start": 123,
+      "line_end": 145,
+      "language": "go",
+      "code": "func Search...",
+      "score": 0.1234,
+      "rerank_score": 0.8560
+    }
+  ]
+}
+```
+
+**Fields**:
+- `score`: Vector distance (lower = more similar)
+- `rerank_score`: Cosine similarity (higher = more relevant, optional)
+- `rerank`: Metadata about reranking configuration (optional)
 
 ### Claude/Codex Integration
 

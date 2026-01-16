@@ -3,8 +3,10 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"math"
 	"os"
 	"sort"
+	"strings"
 
 	"github.com/jlanders/code-scout/internal/embeddings"
 	"github.com/jlanders/code-scout/internal/storage"
@@ -78,6 +80,14 @@ Returns relevant code chunks with file paths, line numbers, and relevance scores
 			results = results[:limitFlag]
 		}
 
+		rerankApplied := false
+		for _, result := range results {
+			if result.RerankScore != nil {
+				rerankApplied = true
+				break
+			}
+		}
+
 		// Format output
 		output := map[string]interface{}{
 			"query":         query,
@@ -85,6 +95,12 @@ Returns relevant code chunks with file paths, line numbers, and relevance scores
 			"total_results": totalMatches,
 			"returned":      len(results),
 			"results":       results,
+		}
+		if rerankApplied {
+			output["rerank"] = map[string]interface{}{
+				"model": globalConfig.RerankModel,
+				"top_k": rerankTopK(limitFlag),
+			}
 		}
 
 		if jsonOutput {
@@ -94,11 +110,21 @@ Returns relevant code chunks with file paths, line numbers, and relevance scores
 			}
 			fmt.Println(string(jsonBytes))
 		} else {
-			fmt.Printf("Found %d unique %s results (from %d total) for: %s\n\n",
-				len(results), string(mode), totalMatches, query)
+			if rerankApplied {
+				fmt.Printf("Found %d unique %s results (reranked by %s, from %d total) for: %s\n\n",
+					len(results), string(mode), globalConfig.RerankModel, totalMatches, query)
+			} else {
+				fmt.Printf("Found %d unique %s results (from %d total) for: %s\n\n",
+					len(results), string(mode), totalMatches, query)
+			}
 			for i, result := range results {
-				fmt.Printf("%d. %s:%d-%d (score: %.4f)\n",
-					i+1, result.FilePath, result.LineStart, result.LineEnd, result.Score)
+				if result.RerankScore != nil {
+					fmt.Printf("%d. %s:%d-%d (vector: %.4f, rerank: %.4f)\n",
+						i+1, result.FilePath, result.LineStart, result.LineEnd, result.Score, *result.RerankScore)
+				} else {
+					fmt.Printf("%d. %s:%d-%d (score: %.4f)\n",
+						i+1, result.FilePath, result.LineStart, result.LineEnd, result.Score)
+				}
 				fmt.Printf("   Language: %s | Source: %s", result.Language, result.EmbeddingType)
 				if result.ChunkType != "" {
 					fmt.Printf(" | Chunk: %s", result.ChunkType)
@@ -128,18 +154,19 @@ Returns relevant code chunks with file paths, line numbers, and relevance scores
 }
 
 type SearchResult struct {
-	ChunkID       string  `json:"chunk_id"`
-	FilePath      string  `json:"file_path"`
-	LineStart     int     `json:"line_start"`
-	LineEnd       int     `json:"line_end"`
-	Language      string  `json:"language"`
-	Code          string  `json:"code"`
-	Score         float64 `json:"score"`
-	EmbeddingType string  `json:"embedding_type"`
-	ChunkType     string  `json:"chunk_type,omitempty"`
-	Heading       string  `json:"heading,omitempty"`
-	HeadingLevel  string  `json:"heading_level,omitempty"`
-	ParentHeading string  `json:"parent_heading,omitempty"`
+	ChunkID       string   `json:"chunk_id"`
+	FilePath      string   `json:"file_path"`
+	LineStart     int      `json:"line_start"`
+	LineEnd       int      `json:"line_end"`
+	Language      string   `json:"language"`
+	Code          string   `json:"code"`
+	Score         float64  `json:"score"`
+	RerankScore   *float64 `json:"rerank_score,omitempty"`
+	EmbeddingType string   `json:"embedding_type"`
+	ChunkType     string   `json:"chunk_type,omitempty"`
+	Heading       string   `json:"heading,omitempty"`
+	HeadingLevel  string   `json:"heading_level,omitempty"`
+	ParentHeading string   `json:"parent_heading,omitempty"`
 }
 
 func resolveSearchMode() (searchMode, error) {
@@ -173,24 +200,43 @@ func runSingleModeSearch(store *storage.LanceDBStore, query string, limit int, m
 		limit = 10
 	}
 
+	searchLimit := limit
+	rerankTopK := rerankTopK(limit)
+	if rerankTopK > searchLimit {
+		searchLimit = rerankTopK
+	}
+
 	queryEmbedding, err := embedQueryForMode(query, mode)
 	if err != nil {
 		return nil, 0, err
 	}
 
 	filter := filterForMode(mode)
-	rawResults, err := store.Search(queryEmbedding, limit, filter)
+	rawResults, err := store.Search(queryEmbedding, searchLimit, filter)
 	if err != nil {
 		return nil, 0, fmt.Errorf("failed to search %s embeddings: %w", mode, err)
 	}
 
 	deduplicated := deduplicateResults(formatResults(rawResults))
+	if rerankTopK > 0 {
+		reranked, err := rerankResults(deduplicated, query, rerankTopK)
+		if err != nil {
+			return nil, 0, err
+		}
+		deduplicated = reranked
+	}
 	return deduplicated, len(rawResults), nil
 }
 
 func runHybridSearch(store *storage.LanceDBStore, query string, limit int) ([]SearchResult, int, error) {
 	if limit <= 0 {
 		limit = 10
+	}
+
+	searchLimit := limit
+	rerankTopK := rerankTopK(limit)
+	if rerankTopK > searchLimit {
+		searchLimit = rerankTopK
 	}
 
 	codeEmbedding, err := embedQueryForMode(query, modeCode)
@@ -202,18 +248,25 @@ func runHybridSearch(store *storage.LanceDBStore, query string, limit int) ([]Se
 		return nil, 0, err
 	}
 
-	codeResults, err := store.Search(codeEmbedding, limit, filterForMode(modeCode))
+	codeResults, err := store.Search(codeEmbedding, searchLimit, filterForMode(modeCode))
 	if err != nil {
 		return nil, 0, fmt.Errorf("failed to search code embeddings: %w", err)
 	}
 
-	docsResults, err := store.Search(docsEmbedding, limit, filterForMode(modeDocs))
+	docsResults, err := store.Search(docsEmbedding, searchLimit, filterForMode(modeDocs))
 	if err != nil {
 		return nil, 0, fmt.Errorf("failed to search documentation embeddings: %w", err)
 	}
 
 	formatted := append(formatResults(codeResults), formatResults(docsResults)...)
 	deduplicated := deduplicateResults(formatted)
+	if rerankTopK > 0 {
+		reranked, err := rerankResults(deduplicated, query, rerankTopK)
+		if err != nil {
+			return nil, 0, err
+		}
+		deduplicated = reranked
+	}
 
 	return deduplicated, len(codeResults) + len(docsResults), nil
 }
@@ -264,6 +317,126 @@ func formatResults(results []map[string]interface{}) []SearchResult {
 		}
 	}
 	return formatted
+}
+
+func rerankTopK(limit int) int {
+	if globalConfig == nil || globalConfig.RerankModel == "" {
+		return 0
+	}
+	topK := globalConfig.RerankTopK
+	if topK <= 0 {
+		topK = limit
+	}
+	if topK <= 0 {
+		topK = 10
+	}
+	return topK
+}
+
+func rerankResults(results []SearchResult, query string, topK int) ([]SearchResult, error) {
+	if len(results) == 0 || topK <= 0 {
+		return results, nil
+	}
+	if topK > len(results) {
+		topK = len(results)
+	}
+
+	client := newRerankEmbeddingClient()
+	if client == nil {
+		return results, nil
+	}
+
+	queryEmbedding, err := client.Embed(query)
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate rerank query embedding: %w", err)
+	}
+
+	texts := make([]string, topK)
+	for i := 0; i < topK; i++ {
+		texts[i] = buildRerankText(results[i])
+	}
+
+	candidateEmbeddings, err := client.EmbedMany(texts)
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate rerank embeddings: %w", err)
+	}
+
+	reranked := make([]SearchResult, topK)
+	copy(reranked, results[:topK])
+	for i := range reranked {
+		score := cosineSimilarity(queryEmbedding, candidateEmbeddings[i])
+		reranked[i].RerankScore = float64Ptr(score)
+	}
+
+	sort.SliceStable(reranked, func(i, j int) bool {
+		if reranked[i].RerankScore == nil || reranked[j].RerankScore == nil {
+			return reranked[i].Score < reranked[j].Score
+		}
+		if *reranked[i].RerankScore == *reranked[j].RerankScore {
+			return reranked[i].Score < reranked[j].Score
+		}
+		return *reranked[i].RerankScore > *reranked[j].RerankScore
+	})
+
+	combined := append(reranked, results[topK:]...)
+	return combined, nil
+}
+
+func buildRerankText(result SearchResult) string {
+	var builder strings.Builder
+	if result.FilePath != "" {
+		builder.WriteString("File: ")
+		builder.WriteString(result.FilePath)
+		builder.WriteString("\n")
+	}
+	if result.Language != "" {
+		builder.WriteString("Language: ")
+		builder.WriteString(result.Language)
+		builder.WriteString("\n")
+	}
+	if result.ChunkType != "" {
+		builder.WriteString("Chunk: ")
+		builder.WriteString(result.ChunkType)
+		builder.WriteString("\n")
+	}
+	if result.Heading != "" {
+		builder.WriteString("Heading: ")
+		builder.WriteString(result.Heading)
+		if result.HeadingLevel != "" {
+			builder.WriteString(" (level ")
+			builder.WriteString(result.HeadingLevel)
+			builder.WriteString(")")
+		}
+		builder.WriteString("\n")
+	}
+	if result.ParentHeading != "" {
+		builder.WriteString("Parents: ")
+		builder.WriteString(result.ParentHeading)
+		builder.WriteString("\n")
+	}
+	builder.WriteString(result.Code)
+	return strings.TrimSpace(builder.String())
+}
+
+func cosineSimilarity(a, b []float64) float64 {
+	var dot, normA, normB float64
+	length := len(a)
+	if len(b) < length {
+		length = len(b)
+	}
+	for i := 0; i < length; i++ {
+		dot += a[i] * b[i]
+		normA += a[i] * a[i]
+		normB += b[i] * b[i]
+	}
+	if normA == 0 || normB == 0 {
+		return 0
+	}
+	return dot / (math.Sqrt(normA) * math.Sqrt(normB))
+}
+
+func float64Ptr(val float64) *float64 {
+	return &val
 }
 
 // deduplicateResults removes duplicate code chunks, keeping the highest-scoring (lowest distance) entry

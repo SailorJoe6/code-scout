@@ -11,10 +11,12 @@ import (
 
 // Config holds the application configuration
 type Config struct {
-	Endpoint  string `json:"endpoint"`
-	APIKey    string `json:"api_key,omitempty"`    // Optional API key for authentication
-	CodeModel string `json:"code_model"`
-	TextModel string `json:"text_model"`
+	Endpoint    string `json:"endpoint"`
+	APIKey      string `json:"api_key,omitempty"` // Optional API key for authentication
+	CodeModel   string `json:"code_model"`
+	TextModel   string `json:"text_model"`
+	RerankModel string `json:"rerank_model,omitempty"`
+	RerankTopK  int    `json:"rerank_top_k,omitempty"`
 }
 
 // Default returns the default configuration
@@ -94,6 +96,12 @@ func mergeConfig(dst, src *Config) {
 	if src.TextModel != "" {
 		dst.TextModel = src.TextModel
 	}
+	if src.RerankModel != "" {
+		dst.RerankModel = src.RerankModel
+	}
+	if src.RerankTopK != 0 {
+		dst.RerankTopK = src.RerankTopK
+	}
 }
 
 // Validate validates the configuration
@@ -121,6 +129,9 @@ func (c *Config) Validate() error {
 	}
 	if c.TextModel == "" {
 		return fmt.Errorf("text_model cannot be empty")
+	}
+	if c.RerankTopK < 0 {
+		return fmt.Errorf("rerank_top_k cannot be negative")
 	}
 
 	return nil

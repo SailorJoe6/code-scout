@@ -511,6 +511,223 @@ See [extension-points.md](extension-points.md) for detailed guide.
 - 1000 chunks = ~14 MB vectors
 - LanceDB compression reduces actual disk usage
 
+## Reranking
+
+### Overview
+
+Reranking is an optional second-stage that improves search precision by re-scoring the top-K results using a different similarity calculation.
+
+**Why Rerank?**
+
+Vector search finds results based on distance in embedding space, but this can miss nuances:
+- Initial embedding is generated without seeing the query
+- Distance metrics may not perfectly capture relevance
+- Top results may benefit from query-aware scoring
+
+Reranking addresses this by:
+1. Generating fresh embeddings for query and each candidate result
+2. Computing direct cosine similarity between them
+3. Reordering based on this more precise relevance score
+
+### Configuration
+
+**Config File** (`.code-scout.json` or `~/.code-scout/config.json`):
+```json
+{
+  "endpoint": "http://localhost:11434",
+  "code_model": "code-scout-code",
+  "text_model": "code-scout-text",
+  "rerank_model": "code-scout-text",
+  "rerank_top_k": 25
+}
+```
+
+**Parameters**:
+- `rerank_model`: Model to use for reranking (optional, empty = disabled)
+- `rerank_top_k`: Number of top results to rerank (optional, default = search limit)
+
+**Model Selection**:
+- **Same as index model**: Most consistent semantic space
+- **Different model**: Can improve cross-domain queries (e.g., text model for code results)
+- **No reranking**: Faster, but potentially less precise
+
+### Reranking Algorithm
+
+**Step 1: Context Building**
+
+Each result is formatted with rich context:
+```
+File: internal/storage/lancedb.go
+Language: go
+Chunk: function
+
+func Search(embedding []float64, limit int) ([]map[string]interface{}, error) {
+    ...
+}
+```
+
+This provides more signal than raw code alone.
+
+**Step 2: Embedding Generation**
+
+```go
+// Generate query embedding once
+queryEmbedding := rerankClient.Embed(query)
+
+// Generate candidate embeddings in batch
+texts := []string{}
+for _, result := range topK {
+    texts = append(texts, buildRerankText(result))
+}
+candidateEmbeddings := rerankClient.EmbedMany(texts)
+```
+
+**Step 3: Similarity Calculation**
+
+```go
+func cosineSimilarity(a, b []float64) float64 {
+    var dot, normA, normB float64
+    for i := 0; i < len(a); i++ {
+        dot += a[i] * b[i]
+        normA += a[i] * a[i]
+        normB += b[i] * b[i]
+    }
+    return dot / (math.Sqrt(normA) * math.Sqrt(normB))
+}
+```
+
+**Cosine similarity** (range: -1 to 1):
+- 1.0 = identical direction (perfect match)
+- 0.0 = orthogonal (unrelated)
+- -1.0 = opposite direction (negative match)
+
+Higher scores = more relevant.
+
+**Step 4: Reordering**
+
+```go
+// Sort top-K by rerank_score (descending)
+sort.SliceStable(reranked, func(i, j int) bool {
+    return *reranked[i].RerankScore > *reranked[j].RerankScore
+})
+
+// Append remaining results unchanged
+combined := append(reranked, results[topK:]...)
+```
+
+### Implementation
+
+**Factory Function** (cmd/code-scout/embeddings_factory.go:24-30):
+```go
+newRerankEmbeddingClient = func() embeddings.Client {
+    if globalConfig != nil && globalConfig.RerankModel != "" {
+        return embeddings.NewClientWithConfig(
+            globalConfig.Endpoint,
+            globalConfig.APIKey,
+            globalConfig.RerankModel,
+        )
+    }
+    return nil  // Reranking disabled
+}
+```
+
+**Main Reranking Logic** (cmd/code-scout/search.go:336-383):
+```go
+func rerankResults(results []SearchResult, query string, topK int) ([]SearchResult, error) {
+    if len(results) == 0 || topK <= 0 {
+        return results, nil
+    }
+
+    client := newRerankEmbeddingClient()
+    if client == nil {
+        return results, nil  // Skip if not configured
+    }
+
+    // Generate embeddings
+    queryEmbedding, _ := client.Embed(query)
+    texts := make([]string, topK)
+    for i := 0; i < topK; i++ {
+        texts[i] = buildRerankText(results[i])
+    }
+    candidateEmbeddings, _ := client.EmbedMany(texts)
+
+    // Calculate scores and reorder
+    reranked := make([]SearchResult, topK)
+    copy(reranked, results[:topK])
+    for i := range reranked {
+        score := cosineSimilarity(queryEmbedding, candidateEmbeddings[i])
+        reranked[i].RerankScore = &score
+    }
+
+    sort.SliceStable(reranked, func(i, j int) bool {
+        return *reranked[i].RerankScore > *reranked[j].RerankScore
+    })
+
+    return append(reranked, results[topK:]...), nil
+}
+```
+
+### Performance
+
+**Overhead**:
+- Query embedding: ~50ms
+- Candidate embeddings (batch of 10): ~100-150ms
+- Similarity calculation: <1ms
+- **Total**: ~150-200ms for top-10 reranking
+
+**Optimization**:
+- Batch embedding generation reduces API calls
+- Only rerank top-K (not all results)
+- Use smaller rerank model if speed-critical
+
+**Recommended Settings**:
+- **High precision needed**: `rerank_top_k: 50` (rerank more, return fewer)
+- **Balanced**: `rerank_top_k: 25` (default)
+- **Speed priority**: Disable reranking (`rerank_model: ""`)
+
+### Output Format
+
+**Without Reranking**:
+```
+1. file.go:10-20 (score: 0.1234)
+```
+
+**With Reranking**:
+```
+1. file.go:10-20 (vector: 0.1234, rerank: 0.8560)
+```
+
+**JSON** includes `rerank` metadata:
+```json
+{
+  "rerank": {
+    "model": "code-scout-text",
+    "top_k": 25
+  },
+  "results": [
+    {
+      "score": 0.1234,
+      "rerank_score": 0.8560,
+      ...
+    }
+  ]
+}
+```
+
+### When to Use Reranking
+
+**Use reranking when**:
+- Precision is more important than speed
+- Queries are complex or multi-faceted
+- Top-1 accuracy matters (e.g., AI agent code generation)
+- Results will be manually reviewed (worth the extra time)
+
+**Skip reranking when**:
+- Speed is critical (<1s response time)
+- Retrieving many results for analysis
+- Initial vector search is sufficient
+- API quota/cost is a concern
+
 ## Best Practices
 
 1. **Use semantic chunking**: Better chunks → better embeddings
@@ -520,12 +737,13 @@ See [extension-points.md](extension-points.md) for detailed guide.
 5. **Monitor progress**: Watch embedding generation output
 6. **Large context**: Use 32K model for full code files
 7. **Consistent model**: Query and index with same model
+8. **Enable reranking**: Improves top-K precision for critical queries
 
 ## Future Improvements
 
 Potential enhancements:
 - **Hybrid search**: Combine vector similarity with keyword matching
-- **Reranking**: Use a more powerful model to rerank top results
 - **Fine-tuning**: Custom model trained on specific codebase
 - **Multi-model**: Use different models for code vs. documentation
-- **Caching**: Cache embeddings across runs (already done for deduplication)
+- **Caching**: Cache rerank embeddings for repeated queries
+- **Learning to rank**: Train a dedicated reranking model
