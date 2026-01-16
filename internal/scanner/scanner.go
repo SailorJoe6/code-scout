@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	ignore "github.com/sabhiram/go-gitignore"
 )
 
 // FileInfo represents a discovered file
@@ -16,12 +18,87 @@ type FileInfo struct {
 
 // Scanner scans directories for code files
 type Scanner struct {
-	rootDir string
+	rootDir       string
+	ignoreMatcher *ignore.GitIgnore
 }
 
 // New creates a new Scanner
 func New(rootDir string) *Scanner {
-	return &Scanner{rootDir: rootDir}
+	scanner := &Scanner{rootDir: rootDir}
+	scanner.loadIgnorePatterns()
+	return scanner
+}
+
+// loadIgnorePatterns reads .gitignore and .code-scout-ignore files
+func (s *Scanner) loadIgnorePatterns() {
+	var allPatterns []string
+
+	// Read .gitignore if it exists
+	gitignorePath := filepath.Join(s.rootDir, ".gitignore")
+	if patterns := readIgnoreFile(gitignorePath); len(patterns) > 0 {
+		allPatterns = append(allPatterns, patterns...)
+	}
+
+	// Read .code-scout-ignore if it exists (takes precedence)
+	codeScoutIgnorePath := filepath.Join(s.rootDir, ".code-scout-ignore")
+	if patterns := readIgnoreFile(codeScoutIgnorePath); len(patterns) > 0 {
+		allPatterns = append(allPatterns, patterns...)
+	}
+
+	// Always ignore .code-scout directory (hardcoded)
+	allPatterns = append(allPatterns, ".code-scout/")
+
+	// Create the ignore matcher if we have any patterns
+	if len(allPatterns) > 0 {
+		s.ignoreMatcher = ignore.CompileIgnoreLines(allPatterns...)
+	}
+}
+
+// readIgnoreFile reads an ignore file and returns non-comment, non-empty lines
+func readIgnoreFile(path string) []string {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		// File doesn't exist or can't be read - that's okay
+		return nil
+	}
+
+	lines := strings.Split(string(data), "\n")
+	var patterns []string
+
+	for _, line := range lines {
+		// Trim whitespace
+		line = strings.TrimSpace(line)
+
+		// Skip empty lines and comments
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+
+		patterns = append(patterns, line)
+	}
+
+	return patterns
+}
+
+// shouldIgnore checks if a path should be ignored based on ignore patterns
+func (s *Scanner) shouldIgnore(path string, isDir bool) bool {
+	if s.ignoreMatcher == nil {
+		return false
+	}
+
+	// Convert to relative path from root directory
+	relPath, err := filepath.Rel(s.rootDir, path)
+	if err != nil {
+		// If we can't get relative path, don't ignore
+		return false
+	}
+
+	// For directories, append "/" to match gitignore behavior
+	if isDir && !strings.HasSuffix(relPath, "/") {
+		relPath = relPath + "/"
+	}
+
+	return s.ignoreMatcher.MatchesPath(relPath)
 }
 
 // languageExtensions maps file extensions to language names
@@ -44,17 +121,20 @@ func (s *Scanner) ScanCodeFiles() ([]FileInfo, error) {
 			return err
 		}
 
-		// Skip .code-scout directory
-		if info.IsDir() && info.Name() == ".code-scout" {
-			return filepath.SkipDir
+		// Check if path should be ignored
+		if s.shouldIgnore(path, info.IsDir()) {
+			if info.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
 		}
 
-		// Skip hidden directories
+		// Skip hidden directories (as fallback if not in ignore patterns)
 		if info.IsDir() && strings.HasPrefix(info.Name(), ".") {
 			return filepath.SkipDir
 		}
 
-		// Skip hidden files
+		// Skip hidden files (as fallback if not in ignore patterns)
 		if !info.IsDir() && strings.HasPrefix(info.Name(), ".") {
 			return nil
 		}
