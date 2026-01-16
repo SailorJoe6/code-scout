@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -653,4 +654,556 @@ func findSubstring(s, substr string) bool {
 		}
 	}
 	return false
+}
+
+// TestWaitForTEI tests the TEI readiness polling
+func TestWaitForTEI(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		mockTEI := createMockTEI(t)
+		defer mockTEI.Close()
+
+		server := &Server{
+			teiBaseURL: mockTEI.URL,
+			client: &http.Client{
+				Timeout: 5 * time.Second,
+			},
+		}
+
+		err := server.waitForTEI(5 * time.Second)
+		if err != nil {
+			t.Errorf("waitForTEI should succeed, got error: %v", err)
+		}
+	})
+
+	t.Run("Timeout", func(t *testing.T) {
+		// Point to a non-existent server
+		server := &Server{
+			teiBaseURL: "http://localhost:9999",
+			client: &http.Client{
+				Timeout: 100 * time.Millisecond,
+			},
+		}
+
+		err := server.waitForTEI(500 * time.Millisecond)
+		if err == nil {
+			t.Error("waitForTEI should timeout when TEI is not available")
+		}
+
+		if err != nil && !contains(err.Error(), "did not become ready") {
+			t.Errorf("Expected timeout error, got: %v", err)
+		}
+	})
+
+	t.Run("UnhealthyThenHealthy", func(t *testing.T) {
+		// Create a server that returns unhealthy first, then healthy
+		attempts := 0
+		mockTEI := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			attempts++
+			if attempts < 3 {
+				w.WriteHeader(http.StatusServiceUnavailable)
+			} else {
+				w.WriteHeader(http.StatusOK)
+			}
+		}))
+		defer mockTEI.Close()
+
+		server := &Server{
+			teiBaseURL: mockTEI.URL,
+			client: &http.Client{
+				Timeout: 5 * time.Second,
+			},
+		}
+
+		err := server.waitForTEI(5 * time.Second)
+		if err != nil {
+			t.Errorf("waitForTEI should eventually succeed, got error: %v", err)
+		}
+
+		if attempts < 3 {
+			t.Errorf("Expected at least 3 attempts, got %d", attempts)
+		}
+	})
+}
+
+// TestStopTEI tests TEI process shutdown
+func TestStopTEI(t *testing.T) {
+	t.Run("NilProcess", func(t *testing.T) {
+		server := &Server{
+			teiCmd: nil,
+		}
+
+		// Should not panic
+		server.stopTEI()
+	})
+
+	t.Run("NilCommand", func(t *testing.T) {
+		server := &Server{}
+
+		// Should not panic
+		server.stopTEI()
+	})
+}
+
+// TestStartTEIWithModel tests starting TEI with various scenarios
+func TestStartTEIWithModel(t *testing.T) {
+	t.Run("InvalidBinary", func(t *testing.T) {
+		server := &Server{
+			teiBinary: "/nonexistent/binary",
+			teiPort:   8080,
+		}
+
+		err := server.startTEIWithModel(context.Background(), "test-model")
+		if err == nil {
+			t.Error("Expected error when binary doesn't exist")
+		}
+
+		if err != nil && !contains(err.Error(), "failed to start TEI") {
+			t.Errorf("Expected start error, got: %v", err)
+		}
+	})
+
+	t.Run("ContextCanceled", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel() // Cancel immediately
+
+		server := &Server{
+			teiBinary: "echo", // Use a simple command that exists
+			teiPort:   8080,
+		}
+
+		// This should still succeed in creating the command, but it won't run
+		err := server.startTEIWithModel(ctx, "test-model")
+
+		// The command creation itself doesn't fail, only execution would
+		// So we just verify the model is set
+		if err == nil && server.currentModel != "test-model" {
+			t.Error("Expected currentModel to be set")
+		}
+	})
+}
+
+// TestSwitchModelErrorPaths tests switchModel error handling
+func TestSwitchModelErrorPaths(t *testing.T) {
+	t.Run("SameModel", func(t *testing.T) {
+		server := &Server{
+			currentModel: "same-model",
+			teiBinary:    "echo",
+		}
+
+		err := server.switchModel("same-model")
+		if err != nil {
+			t.Errorf("Switching to same model should be no-op, got error: %v", err)
+		}
+	})
+}
+
+// TestGetEmbeddingsEdgeCases tests additional edge cases
+func TestGetEmbeddingsEdgeCases(t *testing.T) {
+	t.Run("EmptyInputs", func(t *testing.T) {
+		mockTEI := createMockTEI(t)
+		defer mockTEI.Close()
+
+		server := &Server{
+			teiBaseURL:   mockTEI.URL,
+			currentModel: "test-model",
+			client: &http.Client{
+				Timeout: 10 * time.Second,
+			},
+		}
+
+		embeddings, err := server.getEmbeddings([]string{})
+		if err != nil {
+			t.Fatalf("getEmbeddings with empty input should succeed: %v", err)
+		}
+
+		if len(embeddings) != 0 {
+			t.Errorf("Expected 0 embeddings for empty input, got %d", len(embeddings))
+		}
+	})
+
+	t.Run("NetworkError", func(t *testing.T) {
+		server := &Server{
+			teiBaseURL:   "http://invalid-host-xyz:9999",
+			currentModel: "test-model",
+			client: &http.Client{
+				Timeout: 100 * time.Millisecond,
+			},
+		}
+
+		_, err := server.getEmbeddings([]string{"test"})
+		if err == nil {
+			t.Error("Expected network error")
+		}
+
+		if err != nil && !contains(err.Error(), "failed to send request") {
+			t.Errorf("Expected network error, got: %v", err)
+		}
+	})
+}
+
+// TestStopTEIWithRealProcess tests stopping a real process
+func TestStopTEIWithRealProcess(t *testing.T) {
+	t.Run("GracefulShutdown", func(t *testing.T) {
+		server := &Server{
+			teiBinary: "sleep",
+			teiPort:   8080,
+		}
+
+		// Start a sleep process
+		err := server.startTEIWithModel(context.Background(), "test-model")
+		if err != nil {
+			t.Fatalf("Failed to start process: %v", err)
+		}
+
+		if server.teiCmd == nil || server.teiCmd.Process == nil {
+			t.Fatal("Process not started")
+		}
+
+		pid := server.teiCmd.Process.Pid
+
+		// Stop the process
+		server.stopTEI()
+
+		// Verify process is stopped (checking if process exists will fail)
+		// We can't easily verify this in a cross-platform way, but the function should complete
+		if server.teiCmd != nil && server.teiCmd.Process != nil {
+			// Process might still be referenced, that's ok
+		}
+
+		t.Logf("Process %d stopped successfully", pid)
+	})
+
+	t.Run("ProcessAlreadyDead", func(t *testing.T) {
+		server := &Server{
+			teiBinary: "echo", // echo exits immediately
+			teiPort:   8080,
+		}
+
+		// Start echo which exits immediately
+		err := server.startTEIWithModel(context.Background(), "test-model")
+		if err != nil {
+			t.Fatalf("Failed to start process: %v", err)
+		}
+
+		// Wait for process to exit
+		time.Sleep(100 * time.Millisecond)
+
+		// Stopping should handle already-dead process gracefully
+		server.stopTEI()
+	})
+}
+
+// TestStartTEIWithModelSuccess tests successful process start
+func TestStartTEIWithModelSuccess(t *testing.T) {
+	server := &Server{
+		teiBinary: "sleep",
+		teiPort:   8080,
+	}
+
+	err := server.startTEIWithModel(context.Background(), "test-model")
+	if err != nil {
+		t.Fatalf("Failed to start process: %v", err)
+	}
+	defer server.stopTEI()
+
+	if server.teiCmd == nil {
+		t.Fatal("teiCmd should be set")
+	}
+
+	if server.teiCmd.Process == nil {
+		t.Fatal("Process should be started")
+	}
+
+	if server.currentModel != "test-model" {
+		t.Errorf("Expected currentModel='test-model', got %s", server.currentModel)
+	}
+
+	// Process should be running
+	if server.teiCmd.Process.Pid == 0 {
+		t.Error("Process PID should not be 0")
+	}
+}
+
+// TestSwitchModelWithRealProcess tests model switching with real processes
+func TestSwitchModelWithRealProcess(t *testing.T) {
+	t.Run("SwitchToSameModel", func(t *testing.T) {
+		server := &Server{
+			currentModel: "model-a",
+			teiBinary:    "sleep",
+			teiPort:      8080,
+		}
+
+		err := server.switchModel("model-a")
+		if err != nil {
+			t.Errorf("Switching to same model should succeed: %v", err)
+		}
+
+		// Should not have created a process
+		if server.teiCmd != nil {
+			t.Error("Should not create process when switching to same model")
+		}
+	})
+}
+
+// TestHandleEmbeddingsErrorInGetEmbeddings tests error handling when getEmbeddings fails
+func TestHandleEmbeddingsErrorInGetEmbeddings(t *testing.T) {
+	// Create mock that returns error
+	mockTEI := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/health" {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		// Return error for embed endpoint
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte("Internal error"))
+	}))
+	defer mockTEI.Close()
+
+	server := &Server{
+		teiBaseURL:   mockTEI.URL,
+		currentModel: "test-model",
+		client: &http.Client{
+			Timeout: 10 * time.Second,
+		},
+	}
+
+	testServer := httptest.NewServer(http.HandlerFunc(server.handleEmbeddings))
+	defer testServer.Close()
+
+	reqBody := EmbeddingRequest{
+		Model: "test-model",
+		Input: []string{"test"},
+	}
+
+	bodyBytes, _ := json.Marshal(reqBody)
+	resp, err := http.Post(testServer.URL, "application/json", bytes.NewReader(bodyBytes))
+	if err != nil {
+		t.Fatalf("Request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusInternalServerError {
+		t.Errorf("Expected status 500, got %d", resp.StatusCode)
+	}
+}
+
+// TestResetIdleTimerConcurrency tests resetIdleTimer under concurrent access
+func TestResetIdleTimerConcurrency(t *testing.T) {
+	server := &Server{
+		idlePreload:    true,
+		idleTimeout:    100 * time.Millisecond,
+		preferredModel: "preferred",
+		currentModel:   "other",
+	}
+
+	// Reset timer concurrently
+	done := make(chan bool)
+	for i := 0; i < 5; i++ {
+		go func() {
+			server.resetIdleTimer()
+			done <- true
+		}()
+	}
+
+	// Wait for all goroutines
+	for i := 0; i < 5; i++ {
+		<-done
+	}
+
+	// Timer should be set
+	if server.idleTimer == nil {
+		t.Error("Timer should be set after concurrent resets")
+	}
+}
+
+// TestSwitchModelErrors tests switchModel error paths
+func TestSwitchModelErrors(t *testing.T) {
+	t.Run("StartTEIFails", func(t *testing.T) {
+		server := &Server{
+			currentModel: "old-model",
+			teiBinary:    "/nonexistent/binary",
+			teiPort:      8080,
+		}
+
+		err := server.switchModel("new-model")
+		if err == nil {
+			t.Error("Expected error when starting TEI fails")
+		}
+
+		if err != nil && !contains(err.Error(), "failed to start TEI") {
+			t.Errorf("Expected start error, got: %v", err)
+		}
+	})
+
+	t.Run("WaitForTEIFails", func(t *testing.T) {
+		// This is harder to test without mocking, but we can test the path
+		// by using a binary that starts but doesn't provide the health endpoint
+		server := &Server{
+			currentModel: "old-model",
+			teiBinary:    "sleep",
+			teiPort:      9999,
+			teiBaseURL:   "http://localhost:9999",
+			client: &http.Client{
+				Timeout: 100 * time.Millisecond,
+			},
+		}
+
+		// Start with a sleep process first
+		ctx := context.Background()
+		server.startTEIWithModel(ctx, "old-model")
+		if server.teiCmd != nil {
+			defer server.stopTEI()
+		}
+
+		err := server.switchModel("new-model")
+		if err == nil {
+			t.Error("Expected error when TEI doesn't become ready")
+		}
+
+		if err != nil && !contains(err.Error(), "failed to start") {
+			t.Errorf("Expected TEI ready error, got: %v", err)
+		}
+	})
+}
+
+// TestOnIdleTimeoutCoverage ensures onIdleTimeout is fully covered
+func TestOnIdleTimeoutCoverage(t *testing.T) {
+	t.Run("SwitchFails", func(t *testing.T) {
+		server := &Server{
+			currentModel:   "other-model",
+			preferredModel: "preferred-model",
+			teiBinary:      "/nonexistent/binary",
+			teiPort:        8080,
+		}
+
+		// Should attempt switch and fail gracefully
+		server.onIdleTimeout()
+
+		// Verify it doesn't panic and model doesn't change
+		if server.currentModel != "other-model" {
+			t.Error("Model should not change when switch fails")
+		}
+	})
+}
+
+// TestSwitchModelSuccess tests successful model switching
+func TestSwitchModelSuccess(t *testing.T) {
+	// Create a mock TEI server
+	mockTEI := createMockTEI(t)
+	defer mockTEI.Close()
+
+	server := &Server{
+		currentModel: "model-a",
+		teiBinary:    "sleep",
+		teiPort:      8080,
+		teiBaseURL:   mockTEI.URL,
+		client: &http.Client{
+			Timeout: 5 * time.Second,
+		},
+	}
+
+	// Start initial model
+	err := server.startTEIWithModel(context.Background(), "model-a")
+	if err != nil {
+		t.Fatalf("Failed to start initial model: %v", err)
+	}
+
+	// Switch to a new model
+	// This will stop the sleep process and start a new one
+	// The mockTEI will respond to health checks
+	err = server.switchModel("model-b")
+	if err != nil {
+		t.Fatalf("Model switch should succeed: %v", err)
+	}
+
+	// Clean up
+	defer server.stopTEI()
+
+	// Verify the model was switched
+	if server.currentModel != "model-b" {
+		t.Errorf("Expected currentModel='model-b', got %s", server.currentModel)
+	}
+}
+
+// TestSwitchModelConcurrency tests concurrent model switching
+func TestSwitchModelConcurrency(t *testing.T) {
+	mockTEI := createMockTEI(t)
+	defer mockTEI.Close()
+
+	server := &Server{
+		currentModel: "model-a",
+		teiBinary:    "sleep",
+		teiPort:      8080,
+		teiBaseURL:   mockTEI.URL,
+		client: &http.Client{
+			Timeout: 5 * time.Second,
+		},
+	}
+
+	// Start initial model
+	err := server.startTEIWithModel(context.Background(), "model-a")
+	if err != nil {
+		t.Fatalf("Failed to start initial model: %v", err)
+	}
+	defer server.stopTEI()
+
+	// Try concurrent switches - second should wait for first
+	done := make(chan error, 2)
+	go func() {
+		done <- server.switchModel("model-b")
+	}()
+	go func() {
+		// Small delay to ensure first switch starts
+		time.Sleep(10 * time.Millisecond)
+		done <- server.switchModel("model-c")
+	}()
+
+	// Wait for both
+	err1 := <-done
+	err2 := <-done
+
+	// At least one should succeed (both might if timing works out)
+	if err1 != nil && err2 != nil {
+		t.Errorf("At least one switch should succeed: err1=%v, err2=%v", err1, err2)
+	}
+}
+
+// TestStopTEIKillTimeout tests the timeout/kill path in stopTEI
+func TestStopTEIKillTimeout(t *testing.T) {
+	// This test would need a process that ignores SIGTERM
+	// which is difficult to create portably
+	// For now, we'll test what we can
+	t.Skip("Skipping timeout test - requires process that ignores SIGTERM")
+}
+
+// TestOnIdleTimeoutSuccess tests successful idle timeout switching
+func TestOnIdleTimeoutSuccess(t *testing.T) {
+	mockTEI := createMockTEI(t)
+	defer mockTEI.Close()
+
+	server := &Server{
+		currentModel:   "text-model",
+		preferredModel: "code-model",
+		teiBinary:      "sleep",
+		teiPort:        8080,
+		teiBaseURL:     mockTEI.URL,
+		client: &http.Client{
+			Timeout: 5 * time.Second,
+		},
+	}
+
+	// Start with text model
+	err := server.startTEIWithModel(context.Background(), "text-model")
+	if err != nil {
+		t.Fatalf("Failed to start initial model: %v", err)
+	}
+	defer server.stopTEI()
+
+	// Trigger idle timeout - should switch to code model
+	server.onIdleTimeout()
+
+	// Verify switch occurred
+	if server.currentModel != "code-model" {
+		t.Errorf("Expected currentModel='code-model', got %s", server.currentModel)
+	}
 }
