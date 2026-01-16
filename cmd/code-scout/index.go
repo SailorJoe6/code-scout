@@ -33,95 +33,107 @@ var indexCmd = &cobra.Command{
 	Long: `Scan the current directory for code files, chunk them, generate embeddings,
 and store them in a local LanceDB vector database (.code-scout/).`,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		fmt.Println("Indexing codebase...")
-
-		// Get current working directory
 		cwd, err := os.Getwd()
 		if err != nil {
 			return fmt.Errorf("failed to get current directory: %w", err)
 		}
 
-		// Initialize storage and load metadata
-		store, err := storage.NewLanceDBStore(cwd)
-		if err != nil {
-			return fmt.Errorf("failed to create LanceDB store: %w", err)
+		return performIndexing(cwd, workers, embeddingBatchSize, true)
+	},
+}
+
+// performIndexing executes the indexing logic and can be called by both CLI and daemon
+func performIndexing(cwd string, numWorkers int, batchSize int, verbose bool) error {
+	if verbose {
+		fmt.Println("Indexing codebase...")
+	}
+
+	// Initialize storage and load metadata
+	store, err := storage.NewLanceDBStore(cwd)
+	if err != nil {
+		return fmt.Errorf("failed to create LanceDB store: %w", err)
+	}
+	defer store.Close()
+
+	metadata, err := store.LoadMetadata()
+	if err != nil {
+		return fmt.Errorf("failed to load metadata: %w", err)
+	}
+
+	// Scan for code files
+	s := scanner.New(cwd)
+	allFiles, err := s.ScanCodeFiles()
+	if err != nil {
+		return fmt.Errorf("failed to scan files: %w", err)
+	}
+
+	// Determine which files need indexing
+	var filesToIndex []scanner.FileInfo
+	var filesToDelete []string
+	now := time.Now()
+
+	for _, f := range allFiles {
+		lastModTime, exists := metadata.FileModTimes[f.Path]
+		if !exists || f.ModTime.After(lastModTime) {
+			// File is new or has been modified
+			filesToIndex = append(filesToIndex, f)
+			if exists {
+				// File was previously indexed, mark for deletion
+				filesToDelete = append(filesToDelete, f.Path)
+			}
 		}
-		defer store.Close()
+	}
 
-		metadata, err := store.LoadMetadata()
-		if err != nil {
-			return fmt.Errorf("failed to load metadata: %w", err)
-		}
-
-		// Scan for code files
-		s := scanner.New(cwd)
-		allFiles, err := s.ScanCodeFiles()
-		if err != nil {
-			return fmt.Errorf("failed to scan files: %w", err)
-		}
-
-		// Determine which files need indexing
-		var filesToIndex []scanner.FileInfo
-		var filesToDelete []string
-		now := time.Now()
-
+	// Check for deleted files (files in metadata but not in scan)
+	for filePath := range metadata.FileModTimes {
+		found := false
 		for _, f := range allFiles {
-			lastModTime, exists := metadata.FileModTimes[f.Path]
-			if !exists || f.ModTime.After(lastModTime) {
-				// File is new or has been modified
-				filesToIndex = append(filesToIndex, f)
-				if exists {
-					// File was previously indexed, mark for deletion
-					filesToDelete = append(filesToDelete, f.Path)
-				}
+			if f.Path == filePath {
+				found = true
+				break
 			}
 		}
-
-		// Check for deleted files (files in metadata but not in scan)
-		for filePath := range metadata.FileModTimes {
-			found := false
-			for _, f := range allFiles {
-				if f.Path == filePath {
-					found = true
-					break
-				}
-			}
-			if !found {
-				// File was deleted, mark for deletion
-				filesToDelete = append(filesToDelete, filePath)
-			}
+		if !found {
+			// File was deleted, mark for deletion
+			filesToDelete = append(filesToDelete, filePath)
 		}
+	}
 
-		// Delete old chunks for changed/deleted files
+	// Delete old chunks for changed/deleted files
+	if len(filesToDelete) > 0 && verbose {
+		fmt.Printf("Removing %d changed/deleted file(s) from index...\n", len(filesToDelete))
+	}
+	if len(filesToDelete) > 0 {
+		if err := store.DeleteChunksByFilePath(filesToDelete); err != nil {
+			return fmt.Errorf("failed to delete old chunks: %w", err)
+		}
+		// Remove deleted files from metadata
+		for _, filePath := range filesToDelete {
+			delete(metadata.FileModTimes, filePath)
+		}
+	}
+
+	// If nothing to index, save metadata (if we deleted files) and we're done
+	if len(filesToIndex) == 0 {
 		if len(filesToDelete) > 0 {
-			fmt.Printf("Removing %d changed/deleted file(s) from index...\n", len(filesToDelete))
-			if err := store.DeleteChunksByFilePath(filesToDelete); err != nil {
-				return fmt.Errorf("failed to delete old chunks: %w", err)
-			}
-			// Remove deleted files from metadata
-			for _, filePath := range filesToDelete {
-				delete(metadata.FileModTimes, filePath)
+			metadata.LastIndexTime = now
+			if err := store.SaveMetadata(metadata); err != nil {
+				return fmt.Errorf("failed to save metadata: %w", err)
 			}
 		}
-
-		// If nothing to index, save metadata (if we deleted files) and we're done
-		if len(filesToIndex) == 0 {
-			if len(filesToDelete) > 0 {
-				metadata.LastIndexTime = now
-				if err := store.SaveMetadata(metadata); err != nil {
-					return fmt.Errorf("failed to save metadata: %w", err)
-				}
-			}
+		if verbose {
 			fmt.Printf("✓ All files up to date. Indexing complete!\n")
-			return nil
 		}
+		return nil
+	}
 
-		// Count files by language
-		langCounts := make(map[string]int)
-		for _, f := range filesToIndex {
-			langCounts[f.Language]++
-		}
+	// Count files by language
+	langCounts := make(map[string]int)
+	for _, f := range filesToIndex {
+		langCounts[f.Language]++
+	}
 
+	if verbose {
 		fmt.Printf("Indexing %d file(s)", len(filesToIndex))
 		if len(langCounts) > 0 {
 			fmt.Print(" (")
@@ -136,20 +148,22 @@ and store them in a local LanceDB vector database (.code-scout/).`,
 			fmt.Print(")")
 		}
 		fmt.Println()
+	}
 
-		// Chunk files that need indexing using semantic chunker
-		semanticChunker, err := chunker.NewSemantic()
+	// Chunk files that need indexing using semantic chunker
+	semanticChunker, err := chunker.NewSemantic()
+	if err != nil {
+		return fmt.Errorf("failed to create semantic chunker: %w", err)
+	}
+
+	var allChunks []chunker.Chunk
+	for _, f := range filesToIndex {
+		chunks, err := semanticChunker.ChunkFile(f.Path, f.Language)
 		if err != nil {
-			return fmt.Errorf("failed to create semantic chunker: %w", err)
+			return fmt.Errorf("failed to chunk file %s: %w", f.Path, err)
 		}
-
-		var allChunks []chunker.Chunk
-		for _, f := range filesToIndex {
-			chunks, err := semanticChunker.ChunkFile(f.Path, f.Language)
-			if err != nil {
-				return fmt.Errorf("failed to chunk file %s: %w", f.Path, err)
-			}
-			allChunks = append(allChunks, chunks...)
+		allChunks = append(allChunks, chunks...)
+		if verbose {
 			// Display relative path
 			relPath, err := filepath.Rel(cwd, f.Path)
 			if err != nil {
@@ -157,95 +171,109 @@ and store them in a local LanceDB vector database (.code-scout/).`,
 			}
 			fmt.Printf("  - %s: %d chunks\n", relPath, len(chunks))
 		}
+	}
 
+	if verbose {
 		fmt.Printf("Total chunks: %d\n", len(allChunks))
+	}
 
-		// Separate chunks by embedding type
-		var codeChunks, docsChunks []chunker.Chunk
-		var codeIndices, docsIndices []int
+	// Separate chunks by embedding type
+	var codeChunks, docsChunks []chunker.Chunk
+	var codeIndices, docsIndices []int
 
-		for i, chunk := range allChunks {
-			if chunk.EmbeddingType == "code" {
-				codeChunks = append(codeChunks, chunk)
-				codeIndices = append(codeIndices, i)
-			} else if chunk.EmbeddingType == "docs" {
-				docsChunks = append(docsChunks, chunk)
-				docsIndices = append(docsIndices, i)
-			}
+	for i, chunk := range allChunks {
+		if chunk.EmbeddingType == "code" {
+			codeChunks = append(codeChunks, chunk)
+			codeIndices = append(codeIndices, i)
+		} else if chunk.EmbeddingType == "docs" {
+			docsChunks = append(docsChunks, chunk)
+			docsIndices = append(docsIndices, i)
 		}
+	}
 
+	if verbose {
 		fmt.Printf("Code chunks: %d, Docs chunks: %d\n", len(codeChunks), len(docsChunks))
+	}
 
-		// Initialize all embeddings array
-		allEmbeddings := make([][]float64, len(allChunks))
+	// Initialize all embeddings array
+	allEmbeddings := make([][]float64, len(allChunks))
 
-		// TWO-PASS EMBEDDING GENERATION
+	// TWO-PASS EMBEDDING GENERATION
 
-		// PASS 1: Code chunks with code-scout-code model
-		if len(codeChunks) > 0 {
+	// PASS 1: Code chunks with code-scout-code model
+	if len(codeChunks) > 0 {
+		if verbose {
 			fmt.Println("\nPass 1: Generating code embeddings...")
-			codeClient := newCodeEmbeddingClient()
+		}
+		codeClient := newCodeEmbeddingClient()
 
-			codeEmbeddings, err := generateEmbeddingsWithDedup(codeClient, codeChunks, workers, embeddingBatchSize)
-			if err != nil {
-				return fmt.Errorf("failed to generate code embeddings: %w", err)
-			}
-
-			// Map code embeddings back to allEmbeddings
-			for i, embedding := range codeEmbeddings {
-				allEmbeddings[codeIndices[i]] = embedding
-			}
+		codeEmbeddings, err := generateEmbeddingsWithDedup(codeClient, codeChunks, numWorkers, batchSize)
+		if err != nil {
+			return fmt.Errorf("failed to generate code embeddings: %w", err)
 		}
 
-		// PASS 2: Docs chunks with code-scout-text model
-		if len(docsChunks) > 0 {
+		// Map code embeddings back to allEmbeddings
+		for i, embedding := range codeEmbeddings {
+			allEmbeddings[codeIndices[i]] = embedding
+		}
+	}
+
+	// PASS 2: Docs chunks with code-scout-text model
+	if len(docsChunks) > 0 {
+		if verbose {
 			fmt.Println("\nPass 2: Generating documentation embeddings...")
-			textClient := newDocsEmbeddingClient()
+		}
+		textClient := newDocsEmbeddingClient()
 
-			docsEmbeddings, err := generateEmbeddingsWithDedup(textClient, docsChunks, workers, embeddingBatchSize)
-			if err != nil {
-				return fmt.Errorf("failed to generate docs embeddings: %w", err)
-			}
-
-			// Pad docs embeddings to match code embedding dimensions (3584)
-			// nomic-embed-text produces 768-dim vectors, pad with zeros
-			const targetDim = 3584
-			for i, embedding := range docsEmbeddings {
-				if len(embedding) < targetDim {
-					padded := make([]float64, targetDim)
-					copy(padded, embedding)
-					docsEmbeddings[i] = padded
-				}
-				allEmbeddings[docsIndices[i]] = docsEmbeddings[i]
-			}
+		docsEmbeddings, err := generateEmbeddingsWithDedup(textClient, docsChunks, numWorkers, batchSize)
+		if err != nil {
+			return fmt.Errorf("failed to generate docs embeddings: %w", err)
 		}
 
+		// Pad docs embeddings to match code embedding dimensions (3584)
+		// nomic-embed-text produces 768-dim vectors, pad with zeros
+		const targetDim = 3584
+		for i, embedding := range docsEmbeddings {
+			if len(embedding) < targetDim {
+				padded := make([]float64, targetDim)
+				copy(padded, embedding)
+				docsEmbeddings[i] = padded
+			}
+			allEmbeddings[docsIndices[i]] = docsEmbeddings[i]
+		}
+	}
+
+	if verbose {
 		fmt.Println("\nAll embeddings generated successfully!")
+	}
 
-		// Store chunks and embeddings in LanceDB
+	// Store chunks and embeddings in LanceDB
+	if verbose {
 		fmt.Println("Storing in vector database...")
-		if err := store.StoreChunks(allChunks, allEmbeddings); err != nil {
-			return fmt.Errorf("failed to store chunks: %w", err)
-		}
+	}
+	if err := store.StoreChunks(allChunks, allEmbeddings); err != nil {
+		return fmt.Errorf("failed to store chunks: %w", err)
+	}
 
-		// Update metadata with new file modification times
-		metadata.LastIndexTime = now
-		for _, f := range filesToIndex {
-			metadata.FileModTimes[f.Path] = f.ModTime
-		}
-		// Remove deleted files from metadata
-		for _, filePath := range filesToDelete {
-			delete(metadata.FileModTimes, filePath)
-		}
+	// Update metadata with new file modification times
+	metadata.LastIndexTime = now
+	for _, f := range filesToIndex {
+		metadata.FileModTimes[f.Path] = f.ModTime
+	}
+	// Remove deleted files from metadata
+	for _, filePath := range filesToDelete {
+		delete(metadata.FileModTimes, filePath)
+	}
 
-		if err := store.SaveMetadata(metadata); err != nil {
-			return fmt.Errorf("failed to save metadata: %w", err)
-		}
+	if err := store.SaveMetadata(metadata); err != nil {
+		return fmt.Errorf("failed to save metadata: %w", err)
+	}
 
+	if verbose {
 		fmt.Println("✓ Indexing complete!")
+	}
 
-		return nil
-	},
+	return nil
 }
 
 // generateEmbeddingsWithDedup generates embeddings for chunks with content deduplication

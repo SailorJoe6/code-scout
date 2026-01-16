@@ -340,6 +340,62 @@ Code Scout works with any OpenAI-compatible embedding API endpoint. This include
 
 Git already ignores `.code-scout.json`, so your API keys stay local and never get committed.
 
+## Background Indexing Daemon
+
+Code Scout includes a background daemon that automatically re-indexes your codebase when files change, eliminating the need to manually run `code-scout index` after every code change.
+
+### Features
+
+- **Automatic Re-indexing**: Watches for file changes and triggers indexing automatically
+- **Debouncing**: Waits 5 seconds after the last file change before indexing (prevents excessive re-indexing during active editing)
+- **Respects Ignore Patterns**: Uses `.gitignore` and `.code-scout-ignore` patterns
+- **Graceful Shutdown**: Handles SIGTERM and SIGINT signals cleanly
+- **Process Management**: Simple start/stop/status/logs commands
+
+### Usage
+
+**Start the daemon:**
+```bash
+code-scout daemon start
+```
+
+**Check daemon status:**
+```bash
+code-scout daemon status
+```
+
+**View daemon logs:**
+```bash
+code-scout daemon logs
+```
+
+**Stop the daemon:**
+```bash
+code-scout daemon stop
+```
+
+### How It Works
+
+1. The daemon watches all directories in your repository (respecting ignore patterns)
+2. When file changes are detected (create, modify, delete, rename), a 5-second debounce timer starts
+3. If more changes occur during the 5 seconds, the timer resets
+4. Once file activity settles, the daemon automatically runs the indexing process
+5. The daemon performs incremental indexing (only changed files are re-indexed)
+
+### Files
+
+- **PID file**: `.code-scout/daemon.pid` - Tracks the running daemon process
+- **Log file**: `.code-scout/daemon.log` - Contains daemon activity logs
+
+### Benefits for AI Agents
+
+With the daemon running, AI coding agents can:
+- Use `code-scout search` without worrying about stale results
+- Skip manual `code-scout index` commands
+- Get instant semantic search across the latest code
+
+**Note**: The daemon currently uses the default embedding endpoint configuration. TEI wrapper integration for automatic model management is planned for a future release.
+
 ## Getting Started
 
 *Coming soon - installation and usage instructions*
