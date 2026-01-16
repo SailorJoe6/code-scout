@@ -18,3 +18,16 @@ bd.db
 !*.jsonl
 !metadata.json
 !config.json
+
+# Merge artifacts
+beads.base.jsonl
+beads.left.jsonl
+beads.right.jsonl
+beads.base.meta.json
+beads.left.meta.json
+beads.right.meta.json
+
+# Runtime files
+.local_version
+last-touched
+redirect
