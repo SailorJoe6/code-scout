@@ -118,14 +118,25 @@ func (s *LanceDBStore) DeleteChunksByFilePath(filePaths []string) error {
 		return nil
 	}
 
-	// Try to open table - if it doesn't exist, nothing to delete
 	ctx := context.Background()
-	table, err := s.conn.OpenTable(ctx, DefaultTableName)
-	if err != nil {
-		// Table doesn't exist yet, nothing to delete
-		return nil
+
+	// Use existing table if available, otherwise open a new one
+	table := s.table
+	closeTable := false
+	if table == nil {
+		var err error
+		table, err = s.conn.OpenTable(ctx, DefaultTableName)
+		if err != nil {
+			// Table doesn't exist yet, nothing to delete
+			return nil
+		}
+		closeTable = true
+		defer func() {
+			if closeTable {
+				table.Close()
+			}
+		}()
 	}
-	defer table.Close()
 
 	// Build filter expression: file_path = 'path1' OR file_path = 'path2' OR ...
 	// Escape single quotes in file paths
