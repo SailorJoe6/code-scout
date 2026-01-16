@@ -825,3 +825,200 @@ func TestCloseWithNilTable(t *testing.T) {
 		t.Errorf("Close with nil table should not error: %v", err)
 	}
 }
+
+// TestEnsureTableExisting tests ensureTable when table already exists in database
+func TestEnsureTableExisting(t *testing.T) {
+	tmpDir := createTempDir(t)
+
+	// First store creates the table
+	store1, err := NewLanceDBStore(tmpDir)
+	if err != nil {
+		t.Fatalf("NewLanceDBStore failed: %v", err)
+	}
+
+	chunks1 := []chunker.Chunk{
+		{
+			ID:            "chunk-1",
+			FilePath:      "/test/file1.go",
+			LineStart:     1,
+			LineEnd:       10,
+			Language:      "go",
+			Code:          "func test1() {}",
+			EmbeddingType: "code",
+		},
+	}
+	embeddings1 := [][]float64{make([]float64, VectorDimension)}
+	err = store1.StoreChunks(chunks1, embeddings1)
+	if err != nil {
+		t.Fatalf("First StoreChunks failed: %v", err)
+	}
+	store1.Close()
+
+	// Second store should open the existing table
+	store2, err := NewLanceDBStore(tmpDir)
+	if err != nil {
+		t.Fatalf("Second NewLanceDBStore failed: %v", err)
+	}
+	defer store2.Close()
+
+	// StoreChunks should open existing table via ensureTable
+	chunks2 := []chunker.Chunk{
+		{
+			ID:            "chunk-2",
+			FilePath:      "/test/file2.go",
+			LineStart:     1,
+			LineEnd:       10,
+			Language:      "go",
+			Code:          "func test2() {}",
+			EmbeddingType: "code",
+		},
+	}
+	embeddings2 := [][]float64{make([]float64, VectorDimension)}
+	err = store2.StoreChunks(chunks2, embeddings2)
+	if err != nil {
+		t.Fatalf("Second StoreChunks failed: %v", err)
+	}
+
+	// Verify both chunks are in the table
+	queryVector := make([]float64, VectorDimension)
+	results, err := store2.Search(queryVector, 10, "")
+	if err != nil {
+		t.Fatalf("Search failed: %v", err)
+	}
+
+	if len(results) < 2 {
+		t.Errorf("Expected at least 2 results, got %d", len(results))
+	}
+}
+
+// TestSearchEmptyFilter tests search with empty filter string
+func TestSearchEmptyFilter(t *testing.T) {
+	tmpDir := createTempDir(t)
+	store, err := NewLanceDBStore(tmpDir)
+	if err != nil {
+		t.Fatalf("NewLanceDBStore failed: %v", err)
+	}
+	defer store.Close()
+
+	// Store test chunk
+	chunks := []chunker.Chunk{
+		{
+			ID:            "chunk-1",
+			FilePath:      "/test/file.go",
+			LineStart:     1,
+			LineEnd:       10,
+			Language:      "go",
+			Code:          "func test() {}",
+			EmbeddingType: "code",
+		},
+	}
+	embeddings := [][]float64{make([]float64, VectorDimension)}
+	err = store.StoreChunks(chunks, embeddings)
+	if err != nil {
+		t.Fatalf("StoreChunks failed: %v", err)
+	}
+
+	// Search with empty filter (should use non-filtered path)
+	queryVector := make([]float64, VectorDimension)
+	results, err := store.Search(queryVector, 10, "")
+	if err != nil {
+		t.Fatalf("Search with empty filter failed: %v", err)
+	}
+
+	if len(results) == 0 {
+		t.Error("Expected at least one result")
+	}
+}
+
+// TestDeleteMultipleFiles tests deleting chunks from multiple files at once
+func TestDeleteMultipleFiles(t *testing.T) {
+	tmpDir := createTempDir(t)
+	store, err := NewLanceDBStore(tmpDir)
+	if err != nil {
+		t.Fatalf("NewLanceDBStore failed: %v", err)
+	}
+	defer store.Close()
+
+	// Store chunks from three files
+	chunks := []chunker.Chunk{
+		{
+			ID:            "chunk-1",
+			FilePath:      "/test/file1.go",
+			LineStart:     1,
+			LineEnd:       10,
+			Language:      "go",
+			Code:          "func test1() {}",
+			EmbeddingType: "code",
+		},
+		{
+			ID:            "chunk-2",
+			FilePath:      "/test/file2.go",
+			LineStart:     1,
+			LineEnd:       10,
+			Language:      "go",
+			Code:          "func test2() {}",
+			EmbeddingType: "code",
+		},
+		{
+			ID:            "chunk-3",
+			FilePath:      "/test/file3.go",
+			LineStart:     1,
+			LineEnd:       10,
+			Language:      "go",
+			Code:          "func test3() {}",
+			EmbeddingType: "code",
+		},
+	}
+
+	embeddings := make([][]float64, len(chunks))
+	for i := range embeddings {
+		embeddings[i] = make([]float64, VectorDimension)
+		embeddings[i][0] = float64(i)
+	}
+
+	err = store.StoreChunks(chunks, embeddings)
+	if err != nil {
+		t.Fatalf("StoreChunks failed: %v", err)
+	}
+
+	// Delete two files at once
+	err = store.DeleteChunksByFilePath([]string{"/test/file1.go", "/test/file2.go"})
+	if err != nil {
+		t.Fatalf("DeleteChunksByFilePath failed: %v", err)
+	}
+
+	// Search should only return file3.go
+	queryVector := make([]float64, VectorDimension)
+	results, err := store.Search(queryVector, 10, "")
+	if err != nil {
+		t.Fatalf("Search after delete failed: %v", err)
+	}
+
+	// Check that only file3.go remains
+	for _, result := range results {
+		if filePath, ok := result["file_path"].(string); ok {
+			if filePath == "/test/file1.go" || filePath == "/test/file2.go" {
+				t.Errorf("Deleted file path should not appear in results: %s", filePath)
+			}
+			if filePath != "/test/file3.go" {
+				t.Errorf("Unexpected file path in results: %s", filePath)
+			}
+		}
+	}
+}
+
+// TestOpenTableNonExistent tests opening a table that doesn't exist
+func TestOpenTableNonExistent(t *testing.T) {
+	tmpDir := createTempDir(t)
+	store, err := NewLanceDBStore(tmpDir)
+	if err != nil {
+		t.Fatalf("NewLanceDBStore failed: %v", err)
+	}
+	defer store.Close()
+
+	// Try to open a table that doesn't exist
+	err = store.OpenTable()
+	if err == nil {
+		t.Error("Expected error when opening non-existent table")
+	}
+}

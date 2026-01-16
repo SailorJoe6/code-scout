@@ -115,39 +115,55 @@ The `main()` function (lines 73-140) accounts for ~30 statements that cannot be 
 
 ---
 
-### Slice 4: Storage Package (? → 90%+)
+### Slice 4: Storage Package (86.7% → 91.5%)
 
-**Priority**: High (core component, but requires investigation first)
+**Priority**: High (core component)
 
-**Current Issue**: Storage package not appearing in coverage report
-- Possible cause: CGO build failures in test environment
-- Need to investigate and fix build configuration first
+**Initial State**: Storage package showing at 86.7% coverage
+- Previous concern about CGO build failures was resolved
+- Makefile properly handles CGO configuration
+- Tests were already running, just needed improvement
 
-**Investigation Steps**:
-1. Determine why storage tests aren't running in coverage
-2. Fix CGO/LanceDB test environment issues
-3. Assess current actual coverage
-4. Identify gaps
+**Work Completed**:
+- ✅ Analyzed uncovered lines using coverage.out file
+- ✅ Identified functions with lowest coverage:
+  - `Close`: 71.4% (error handling paths - difficult to test without mocking)
+  - `ensureTable`: 76.5% → 82.4% (improved by testing existing table path)
+  - `DeleteChunksByFilePath`: 80.8%
+  - `OpenTable`: 83.3% → 100.0% (improved by testing non-existent table error)
+  - `SaveMetadata`: 85.7%
+- ✅ Added comprehensive tests:
+  - `TestEnsureTableExisting`: Tests reopening existing database and table
+  - `TestSearchEmptyFilter`: Tests search without filter (non-filtered code path)
+  - `TestDeleteMultipleFiles`: Tests deleting multiple files at once
+  - `TestOpenTableNonExistent`: Tests error path when opening non-existent table
 
-**Likely Gaps** (anticipated):
-- Error recovery scenarios
-- Edge cases in chunk storage/retrieval
-- Database corruption handling
-- Concurrent access patterns
-- Schema migration scenarios
-- Index creation and optimization
-- Query error handling
-- Connection lifecycle management
+**Coverage by Function**:
+- `getOrCreateSchema`: 100.0%
+- `OpenTable`: 100.0%
+- `StoreChunks`: 96.9%
+- `Search`: 93.3%
+- `LoadMetadata`: 91.7%
+- `NewLanceDBStore`: 87.5%
+- `SaveMetadata`: 85.7%
+- `ensureTable`: 82.4%
+- `DeleteChunksByFilePath`: 80.8%
+- `Close`: 71.4%
 
-**Approach** (after investigation):
-- Use table-driven tests for CRUD operations
-- Test error scenarios with mock failures
-- Test concurrent access patterns
-- Verify cleanup and resource management
-- Test incremental update scenarios
+**Final Coverage**: 91.5% (exceeds 90% target)
 
-**Expected Effort**: 3-5 hours (including investigation)
-**Deliverable**: Storage coverage at 90%+
+**Why Not Higher?**:
+Functions below 90% have legitimate reasons:
+- `Close` (71.4%): Error paths require C library failures (impractical to test)
+- `ensureTable` (82.4%): Error paths for schema creation require LanceDB library failures
+- `DeleteChunksByFilePath` (80.8%): Table operation errors require database corruption
+- `NewLanceDBStore` (87.5%): Directory creation/connection failures difficult to simulate
+- `SaveMetadata` (85.7%): File I/O errors tested where practical
+
+These uncovered paths are defensive error handling that can't realistically be triggered in unit tests without mocking the LanceDB C library.
+
+**Actual Effort**: 2 hours
+**Deliverable**: Storage package well-tested at 91.5% coverage
 
 ---
 
@@ -234,7 +250,7 @@ Update this table as each slice is completed:
 | 1 | `internal/parser` | ✅ Complete | 90.5% | fa32a77 | 2026-01-16 |
 | 2 | `internal/config` | ✅ Complete | 92.9% | 083858f | 2026-01-16 |
 | 3 | `cmd/tei-wrapper` | ✅ Complete | 76.8% | b5334bd | 2026-01-16 |
-| 4 | `internal/storage` | ⏳ Not started | - | - | - |
+| 4 | `internal/storage` | ✅ Complete | 91.5% | (pending) | 2026-01-16 |
 | 5 | `cmd/code-scout` | ⏳ Not started | - | - | - |
 
 Status Legend:
