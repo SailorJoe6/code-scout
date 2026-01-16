@@ -219,7 +219,7 @@ Update this table as each slice is completed:
 
 | Slice | Component | Status | Final Coverage | Commit SHA | Date |
 |-------|-----------|--------|----------------|------------|------|
-| 1 | `internal/parser` | ✅ Complete | 90.5% | Pending | 2026-01-16 |
+| 1 | `internal/parser` | ✅ Complete | 90.5% | fa32a77 | 2026-01-16 |
 | 2 | `internal/config` | ⏳ Not started | - | - | - |
 | 3 | `cmd/tei-wrapper` | ⏳ Not started | - | - | - |
 | 4 | `internal/storage` | ⏳ Not started | - | - | - |
