@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"os"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -149,7 +150,12 @@ and store them in a local LanceDB vector database (.code-scout/).`,
 				return fmt.Errorf("failed to chunk file %s: %w", f.Path, err)
 			}
 			allChunks = append(allChunks, chunks...)
-			fmt.Printf("  - %s: %d chunks\n", f.Path, len(chunks))
+			// Display relative path
+			relPath, err := filepath.Rel(cwd, f.Path)
+			if err != nil {
+				relPath = f.Path // Fallback to absolute if conversion fails
+			}
+			fmt.Printf("  - %s: %d chunks\n", relPath, len(chunks))
 		}
 
 		fmt.Printf("Total chunks: %d\n", len(allChunks))
@@ -366,8 +372,14 @@ func generateEmbeddingsWithDedup(client embeddings.Client, chunks []chunker.Chun
 		if r.embedding != nil {
 			if completed == 1 || completed%50 == 0 || completed == uniqueCount {
 				percentage := float64(completed) / float64(uniqueCount) * 100
+				// Display relative path
+				cwd, _ := os.Getwd()
+				relPath, err := filepath.Rel(cwd, r.filePath)
+				if err != nil {
+					relPath = r.filePath // Fallback to absolute if conversion fails
+				}
 				fmt.Printf("  [%d%%] %s - Generated %d/%d unique embeddings (dim: %d)\n",
-					int(percentage), r.filePath, completed, uniqueCount, len(r.embedding))
+					int(percentage), relPath, completed, uniqueCount, len(r.embedding))
 			}
 		}
 		if completed == uniqueCount {
