@@ -233,7 +233,7 @@ Update this table as each slice is completed:
 |-------|-----------|--------|----------------|------------|------|
 | 1 | `internal/parser` | ✅ Complete | 90.5% | fa32a77 | 2026-01-16 |
 | 2 | `internal/config` | ✅ Complete | 92.9% | 083858f | 2026-01-16 |
-| 3 | `cmd/tei-wrapper` | ✅ Complete | 76.8% | Pending | 2026-01-16 |
+| 3 | `cmd/tei-wrapper` | ✅ Complete | 76.8% | b5334bd | 2026-01-16 |
 | 4 | `internal/storage` | ⏳ Not started | - | - | - |
 | 5 | `cmd/code-scout` | ⏳ Not started | - | - | - |
 
