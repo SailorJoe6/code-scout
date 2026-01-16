@@ -889,3 +889,152 @@ func (f *FileReader) Close() error {
 		t.Error("Expected to find methods")
 	}
 }
+
+// TestExtractorEdgeCases tests helper function edge cases for coverage
+func TestExtractorEdgeCases(t *testing.T) {
+	t.Run("extractMethodSpecName with nil node", func(t *testing.T) {
+		parser, err := NewGoParser()
+		if err != nil {
+			t.Fatalf("NewGoParser failed: %v", err)
+		}
+		extractor := NewExtractor(parser, []byte("package main"))
+		// Call with nil node - should return empty string
+		result := extractor.extractMethodSpecName(nil)
+		if result != "" {
+			t.Errorf("Expected empty string for nil node, got %q", result)
+		}
+	})
+
+	t.Run("extractPackageName with nil node", func(t *testing.T) {
+		parser, err := NewGoParser()
+		if err != nil {
+			t.Fatalf("NewGoParser failed: %v", err)
+		}
+		extractor := NewExtractor(parser, []byte("package main"))
+		// Call with nil node - should return empty string
+		result := extractor.extractPackageName(nil)
+		if result != "" {
+			t.Errorf("Expected empty string for nil node, got %q", result)
+		}
+	})
+
+	t.Run("extractImportPath with nil node", func(t *testing.T) {
+		parser, err := NewGoParser()
+		if err != nil {
+			t.Fatalf("NewGoParser failed: %v", err)
+		}
+		extractor := NewExtractor(parser, []byte("package main"))
+		// Call with nil node - should return empty string
+		result := extractor.extractImportPath(nil)
+		if result != "" {
+			t.Errorf("Expected empty string for nil node, got %q", result)
+		}
+	})
+
+	t.Run("extractPackageName with empty file", func(t *testing.T) {
+		// Test package name extraction with various package declarations
+		testCases := []struct {
+			name    string
+			code    string
+			wantPkg string
+		}{
+			{
+				name:    "standard package",
+				code:    "package main\n",
+				wantPkg: "main",
+			},
+			{
+				name:    "package with underscore",
+				code:    "package my_package\n",
+				wantPkg: "my_package",
+			},
+			{
+				name:    "no package declaration",
+				code:    "// just a comment\n",
+				wantPkg: "",
+			},
+		}
+
+		for _, tc := range testCases {
+			t.Run(tc.name, func(t *testing.T) {
+				parser, err := NewGoParser()
+				if err != nil {
+					t.Fatalf("NewGoParser failed: %v", err)
+				}
+				extractor := NewExtractor(parser, []byte(tc.code))
+				_, err = extractor.ExtractFunctions(context.Background())
+				if err != nil {
+					t.Fatalf("ExtractFunctions failed: %v", err)
+				}
+				if extractor.packageName != tc.wantPkg {
+					t.Errorf("Expected package %q, got %q", tc.wantPkg, extractor.packageName)
+				}
+			})
+		}
+	})
+
+	t.Run("extractImportPath with various imports", func(t *testing.T) {
+		testCases := []struct {
+			name        string
+			code        string
+			wantImports int
+		}{
+			{
+				name: "single import",
+				code: `package main
+import "fmt"
+`,
+				wantImports: 1,
+			},
+			{
+				name: "multiple imports in group",
+				code: `package main
+import (
+	"fmt"
+	"os"
+	"io"
+)
+`,
+				wantImports: 3,
+			},
+			{
+				name: "import with dot",
+				code: `package main
+import . "fmt"
+`,
+				wantImports: 1,
+			},
+			{
+				name: "import with alias",
+				code: `package main
+import f "fmt"
+`,
+				wantImports: 1,
+			},
+			{
+				name: "no imports",
+				code: `package main
+func main() {}
+`,
+				wantImports: 0,
+			},
+		}
+
+		for _, tc := range testCases {
+			t.Run(tc.name, func(t *testing.T) {
+				parser, err := NewGoParser()
+				if err != nil {
+					t.Fatalf("NewGoParser failed: %v", err)
+				}
+				extractor := NewExtractor(parser, []byte(tc.code))
+				_, err = extractor.ExtractFunctions(context.Background())
+				if err != nil {
+					t.Fatalf("ExtractFunctions failed: %v", err)
+				}
+				if len(extractor.imports) != tc.wantImports {
+					t.Errorf("Expected %d imports, got %d: %v", tc.wantImports, len(extractor.imports), extractor.imports)
+				}
+			})
+		}
+	})
+}
