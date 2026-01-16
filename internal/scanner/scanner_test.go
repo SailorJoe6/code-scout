@@ -143,3 +143,62 @@ func TestLanguageExtensions(t *testing.T) {
 		}
 	}
 }
+
+func TestScanPythonFiles(t *testing.T) {
+	// Create temp directory structure
+	tmpDir := t.TempDir()
+
+	// Create test files
+	files := map[string]string{
+		"script.py":  "def main(): pass",
+		"utils.py":   "# utility functions",
+		"README.md":  "# README",
+	}
+
+	for name, content := range files {
+		path := filepath.Join(tmpDir, name)
+		if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// Test ScanPythonFiles (deprecated, but should work like ScanCodeFiles)
+	scanner := New(tmpDir)
+	results, err := scanner.ScanPythonFiles()
+	if err != nil {
+		t.Fatalf("ScanPythonFiles failed: %v", err)
+	}
+
+	// Should find all files (both .py and .md)
+	if len(results) != 3 {
+		t.Errorf("Expected 3 files, got %d", len(results))
+	}
+
+	// Verify it finds Python files
+	foundPython := false
+	for _, result := range results {
+		if result.Language == "python" {
+			foundPython = true
+			break
+		}
+	}
+	if !foundPython {
+		t.Error("ScanPythonFiles did not find any Python files")
+	}
+}
+
+func TestScanCodeFiles_NonexistentDirectory(t *testing.T) {
+	// Test scanning a non-existent directory
+	scanner := New("/nonexistent/path/that/does/not/exist")
+	results, err := scanner.ScanCodeFiles()
+
+	// Should return an error
+	if err == nil {
+		t.Error("Expected error when scanning non-existent directory, got nil")
+	}
+
+	// Results should be nil or empty
+	if results != nil && len(results) > 0 {
+		t.Errorf("Expected no results for non-existent directory, got %d", len(results))
+	}
+}

@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/jlanders/code-scout/internal/chunker"
 )
@@ -614,5 +615,213 @@ func TestVectorPadding(t *testing.T) {
 	_, err = store.Search(shortQueryVector, 10, "")
 	if err != nil {
 		t.Fatalf("Search with short vector should work (with padding): %v", err)
+	}
+}
+
+// TestLoadMetadata_NewFile tests loading metadata when file doesn't exist
+func TestLoadMetadata_NewFile(t *testing.T) {
+	tmpDir := createTempDir(t)
+	store, err := NewLanceDBStore(tmpDir)
+	if err != nil {
+		t.Fatalf("NewLanceDBStore failed: %v", err)
+	}
+	defer store.Close()
+
+	// Load metadata when file doesn't exist
+	metadata, err := store.LoadMetadata()
+	if err != nil {
+		t.Fatalf("LoadMetadata should not error on missing file: %v", err)
+	}
+
+	// Should return empty metadata
+	if metadata == nil {
+		t.Fatal("Expected non-nil metadata")
+	}
+
+	if !metadata.LastIndexTime.IsZero() {
+		t.Error("Expected zero LastIndexTime for new metadata")
+	}
+
+	if metadata.FileModTimes == nil {
+		t.Error("Expected non-nil FileModTimes map")
+	}
+
+	if len(metadata.FileModTimes) != 0 {
+		t.Errorf("Expected empty FileModTimes, got %d entries", len(metadata.FileModTimes))
+	}
+}
+
+// TestSaveAndLoadMetadata tests saving and loading metadata
+func TestSaveAndLoadMetadata(t *testing.T) {
+	tmpDir := createTempDir(t)
+	store, err := NewLanceDBStore(tmpDir)
+	if err != nil {
+		t.Fatalf("NewLanceDBStore failed: %v", err)
+	}
+	defer store.Close()
+
+	// Create test metadata
+	now := time.Now()
+	metadata := &IndexMetadata{
+		LastIndexTime: now,
+		FileModTimes: map[string]time.Time{
+			"/test/file1.go": now.Add(-1 * time.Hour),
+			"/test/file2.py": now.Add(-2 * time.Hour),
+		},
+	}
+
+	// Save metadata
+	err = store.SaveMetadata(metadata)
+	if err != nil {
+		t.Fatalf("SaveMetadata failed: %v", err)
+	}
+
+	// Verify file was created
+	metadataPath := filepath.Join(store.dbDir, metadataFileName)
+	if _, err := os.Stat(metadataPath); os.IsNotExist(err) {
+		t.Error("Metadata file was not created")
+	}
+
+	// Load metadata back
+	loaded, err := store.LoadMetadata()
+	if err != nil {
+		t.Fatalf("LoadMetadata failed: %v", err)
+	}
+
+	// Verify loaded data matches original
+	if !loaded.LastIndexTime.Equal(metadata.LastIndexTime) {
+		t.Errorf("LastIndexTime mismatch: expected %v, got %v", metadata.LastIndexTime, loaded.LastIndexTime)
+	}
+
+	if len(loaded.FileModTimes) != len(metadata.FileModTimes) {
+		t.Errorf("FileModTimes count mismatch: expected %d, got %d", len(metadata.FileModTimes), len(loaded.FileModTimes))
+	}
+
+	for path, expectedTime := range metadata.FileModTimes {
+		loadedTime, ok := loaded.FileModTimes[path]
+		if !ok {
+			t.Errorf("File path %s not found in loaded metadata", path)
+			continue
+		}
+		// Compare with some tolerance for JSON marshaling precision
+		if loadedTime.Unix() != expectedTime.Unix() {
+			t.Errorf("ModTime mismatch for %s: expected %v, got %v", path, expectedTime, loadedTime)
+		}
+	}
+}
+
+// TestLoadMetadata_CorruptedFile tests loading corrupted metadata
+func TestLoadMetadata_CorruptedFile(t *testing.T) {
+	tmpDir := createTempDir(t)
+	store, err := NewLanceDBStore(tmpDir)
+	if err != nil {
+		t.Fatalf("NewLanceDBStore failed: %v", err)
+	}
+	defer store.Close()
+
+	// Write invalid JSON to metadata file
+	metadataPath := filepath.Join(store.dbDir, metadataFileName)
+	err = os.WriteFile(metadataPath, []byte("invalid json {{{"), 0644)
+	if err != nil {
+		t.Fatalf("Failed to write corrupted metadata: %v", err)
+	}
+
+	// Load should return error
+	_, err = store.LoadMetadata()
+	if err == nil {
+		t.Error("Expected error when loading corrupted metadata")
+	}
+}
+
+// TestSaveMetadata_NilFileModTimes tests saving metadata with nil map
+func TestSaveMetadata_NilFileModTimes(t *testing.T) {
+	tmpDir := createTempDir(t)
+	store, err := NewLanceDBStore(tmpDir)
+	if err != nil {
+		t.Fatalf("NewLanceDBStore failed: %v", err)
+	}
+	defer store.Close()
+
+	// Create metadata with nil FileModTimes
+	metadata := &IndexMetadata{
+		LastIndexTime: time.Now(),
+		FileModTimes:  nil, // Explicitly nil
+	}
+
+	// Save should not error
+	err = store.SaveMetadata(metadata)
+	if err != nil {
+		t.Fatalf("SaveMetadata with nil FileModTimes failed: %v", err)
+	}
+
+	// Load it back
+	loaded, err := store.LoadMetadata()
+	if err != nil {
+		t.Fatalf("LoadMetadata failed: %v", err)
+	}
+
+	// Should have non-nil map even if saved as nil
+	if loaded.FileModTimes == nil {
+		t.Error("Expected non-nil FileModTimes after loading")
+	}
+}
+
+// TestNewLanceDBStore_InvalidPath tests store creation with invalid path
+func TestNewLanceDBStore_InvalidPath(t *testing.T) {
+	// Try to create store in a path that can't be created (null byte in path)
+	_, err := NewLanceDBStore("/tmp/invalid\x00path")
+	if err == nil {
+		t.Error("Expected error when creating store with invalid path")
+	}
+}
+
+// TestSaveMetadata_ReadOnlyDir tests saving to read-only directory
+func TestSaveMetadata_ReadOnlyDir(t *testing.T) {
+	if os.Getuid() == 0 {
+		t.Skip("Test cannot run as root (permissions are not enforced)")
+	}
+
+	tmpDir := createTempDir(t)
+	store, err := NewLanceDBStore(tmpDir)
+	if err != nil {
+		t.Fatalf("NewLanceDBStore failed: %v", err)
+	}
+	defer store.Close()
+
+	// Make db directory read-only
+	dbDir := filepath.Join(tmpDir, DefaultDBDir)
+	if err := os.Chmod(dbDir, 0444); err != nil {
+		t.Fatalf("Failed to chmod directory: %v", err)
+	}
+	defer os.Chmod(dbDir, 0755) // Restore permissions for cleanup
+
+	// Save should fail due to permissions
+	metadata := &IndexMetadata{
+		LastIndexTime: time.Now(),
+		FileModTimes:  make(map[string]time.Time),
+	}
+	err = store.SaveMetadata(metadata)
+	if err == nil {
+		t.Error("Expected error when saving to read-only directory")
+	}
+}
+
+// TestCloseWithNilTable tests closing when table is nil
+func TestCloseWithNilTable(t *testing.T) {
+	tmpDir := createTempDir(t)
+	store, err := NewLanceDBStore(tmpDir)
+	if err != nil {
+		t.Fatalf("NewLanceDBStore failed: %v", err)
+	}
+
+	// Store has nil table since we never initialized it
+	if store.table != nil {
+		t.Skip("Table is not nil, test assumptions invalid")
+	}
+
+	// Close should work even with nil table
+	err = store.Close()
+	if err != nil {
+		t.Errorf("Close with nil table should not error: %v", err)
 	}
 }

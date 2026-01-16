@@ -260,3 +260,288 @@ func trimSpace(s string) string {
 	}
 	return s[start:end]
 }
+
+// TestSemanticChunkerMarkdown tests markdown file chunking
+func TestSemanticChunkerMarkdown(t *testing.T) {
+	tmpDir := t.TempDir()
+	testFile := filepath.Join(tmpDir, "test.md")
+
+	markdownContent := `# Main Title
+
+This is the introduction.
+
+## Section 1
+
+Some content in section 1.
+
+## Section 2
+
+Some content in section 2.
+`
+
+	err := os.WriteFile(testFile, []byte(markdownContent), 0644)
+	if err != nil {
+		t.Fatalf("Failed to write test file: %v", err)
+	}
+
+	chunker, err := NewSemantic()
+	if err != nil {
+		t.Fatalf("Failed to create semantic chunker: %v", err)
+	}
+
+	chunks, err := chunker.ChunkFile(testFile, "markdown")
+	if err != nil {
+		t.Fatalf("Failed to chunk markdown file: %v", err)
+	}
+
+	if len(chunks) == 0 {
+		t.Fatal("Expected at least one chunk for markdown file")
+	}
+
+	// Verify all chunks have embedding_type = "docs"
+	for _, chunk := range chunks {
+		if chunk.EmbeddingType != "docs" {
+			t.Errorf("Expected embedding_type 'docs', got '%s'", chunk.EmbeddingType)
+		}
+		if chunk.Language != "markdown" {
+			t.Errorf("Expected language 'markdown', got '%s'", chunk.Language)
+		}
+	}
+}
+
+// TestSemanticChunkerPlainText tests plain text file chunking
+func TestSemanticChunkerPlainText(t *testing.T) {
+	tmpDir := t.TempDir()
+	testFile := filepath.Join(tmpDir, "test.txt")
+
+	textContent := `This is a plain text file.
+It contains multiple lines.
+But no special formatting.`
+
+	err := os.WriteFile(testFile, []byte(textContent), 0644)
+	if err != nil {
+		t.Fatalf("Failed to write test file: %v", err)
+	}
+
+	chunker, err := NewSemantic()
+	if err != nil {
+		t.Fatalf("Failed to create semantic chunker: %v", err)
+	}
+
+	chunks, err := chunker.ChunkFile(testFile, "text")
+	if err != nil {
+		t.Fatalf("Failed to chunk text file: %v", err)
+	}
+
+	// Plain text should be one chunk
+	if len(chunks) != 1 {
+		t.Errorf("Expected 1 chunk for plain text, got %d", len(chunks))
+	}
+
+	if len(chunks) > 0 {
+		chunk := chunks[0]
+		if chunk.EmbeddingType != "docs" {
+			t.Errorf("Expected embedding_type 'docs', got '%s'", chunk.EmbeddingType)
+		}
+		if chunk.Language != "text" {
+			t.Errorf("Expected language 'text', got '%s'", chunk.Language)
+		}
+		if chunk.ChunkType != "document" {
+			t.Errorf("Expected chunk_type 'document', got '%s'", chunk.ChunkType)
+		}
+		if chunk.Code != textContent {
+			t.Error("Expected chunk content to match file content")
+		}
+	}
+}
+
+// TestSemanticChunkerRST tests reStructuredText file chunking
+func TestSemanticChunkerRST(t *testing.T) {
+	tmpDir := t.TempDir()
+	testFile := filepath.Join(tmpDir, "test.rst")
+
+	rstContent := `Documentation Title
+===================
+
+This is a reStructuredText file.
+
+Subsection
+----------
+
+More content here.`
+
+	err := os.WriteFile(testFile, []byte(rstContent), 0644)
+	if err != nil {
+		t.Fatalf("Failed to write test file: %v", err)
+	}
+
+	chunker, err := NewSemantic()
+	if err != nil {
+		t.Fatalf("Failed to create semantic chunker: %v", err)
+	}
+
+	chunks, err := chunker.ChunkFile(testFile, "rst")
+	if err != nil {
+		t.Fatalf("Failed to chunk RST file: %v", err)
+	}
+
+	// RST should be one chunk (treated like plain text)
+	if len(chunks) != 1 {
+		t.Errorf("Expected 1 chunk for RST, got %d", len(chunks))
+	}
+
+	if len(chunks) > 0 {
+		chunk := chunks[0]
+		if chunk.EmbeddingType != "docs" {
+			t.Errorf("Expected embedding_type 'docs', got '%s'", chunk.EmbeddingType)
+		}
+		if chunk.Language != "rst" {
+			t.Errorf("Expected language 'rst', got '%s'", chunk.Language)
+		}
+		if chunk.ChunkType != "document" {
+			t.Errorf("Expected chunk_type 'document', got '%s'", chunk.ChunkType)
+		}
+	}
+}
+
+// TestSemanticChunkerUnsupportedLanguage tests error handling for unsupported languages
+func TestSemanticChunkerUnsupportedLanguage(t *testing.T) {
+	tmpDir := t.TempDir()
+	testFile := filepath.Join(tmpDir, "test.xyz")
+
+	err := os.WriteFile(testFile, []byte("content"), 0644)
+	if err != nil {
+		t.Fatalf("Failed to write test file: %v", err)
+	}
+
+	chunker, err := NewSemantic()
+	if err != nil {
+		t.Fatalf("Failed to create semantic chunker: %v", err)
+	}
+
+	_, err = chunker.ChunkFile(testFile, "unsupported")
+	if err == nil {
+		t.Error("Expected error for unsupported language")
+	}
+}
+
+// TestSemanticChunkerNonExistentFile tests error handling for missing files
+func TestSemanticChunkerNonExistentFile(t *testing.T) {
+	chunker, err := NewSemantic()
+	if err != nil {
+		t.Fatalf("Failed to create semantic chunker: %v", err)
+	}
+
+	_, err = chunker.ChunkFile("/nonexistent/file.txt", "text")
+	if err == nil {
+		t.Error("Expected error for non-existent file")
+	}
+}
+
+// TestSemanticChunkerCodeEmbeddingType tests that code files get "code" embedding type
+func TestSemanticChunkerCodeEmbeddingType(t *testing.T) {
+	tmpDir := t.TempDir()
+	testFile := filepath.Join(tmpDir, "test.go")
+
+	sourceCode := `package main
+
+func main() {
+	println("test")
+}
+`
+
+	err := os.WriteFile(testFile, []byte(sourceCode), 0644)
+	if err != nil {
+		t.Fatalf("Failed to write test file: %v", err)
+	}
+
+	chunker, err := NewSemantic()
+	if err != nil {
+		t.Fatalf("Failed to create semantic chunker: %v", err)
+	}
+
+	chunks, err := chunker.ChunkFile(testFile, "go")
+	if err != nil {
+		t.Fatalf("Failed to chunk file: %v", err)
+	}
+
+	// Verify all code chunks have embedding_type = "code"
+	for _, chunk := range chunks {
+		if chunk.EmbeddingType != "code" {
+			t.Errorf("Expected embedding_type 'code' for Go file, got '%s'", chunk.EmbeddingType)
+		}
+	}
+}
+
+// TestSemanticChunkerNonExistentCodeFile tests error handling for missing code files
+func TestSemanticChunkerNonExistentCodeFile(t *testing.T) {
+	chunker, err := NewSemantic()
+	if err != nil {
+		t.Fatalf("Failed to create semantic chunker: %v", err)
+	}
+
+	_, err = chunker.ChunkFile("/nonexistent/file.go", "go")
+	if err == nil {
+		t.Error("Expected error for non-existent code file")
+	}
+}
+
+// TestSemanticChunkerMetadataPopulation tests that all metadata is properly set
+func TestSemanticChunkerMetadataPopulation(t *testing.T) {
+	tmpDir := t.TempDir()
+	testFile := filepath.Join(tmpDir, "test.go")
+
+	sourceCode := `package mypackage
+
+// MyFunc does something with parameters
+func MyFunc(a int, b string) bool {
+	return true
+}
+
+type MyType struct {
+	Field int
+}
+
+// Method has a receiver and a signature
+func (m *MyType) Method(x int) string {
+	return "result"
+}
+`
+
+	err := os.WriteFile(testFile, []byte(sourceCode), 0644)
+	if err != nil {
+		t.Fatalf("Failed to write test file: %v", err)
+	}
+
+	chunker, err := NewSemantic()
+	if err != nil {
+		t.Fatalf("Failed to create semantic chunker: %v", err)
+	}
+
+	chunks, err := chunker.ChunkFile(testFile, "go")
+	if err != nil {
+		t.Fatalf("Failed to chunk file: %v", err)
+	}
+
+	// Find the method chunk and verify receiver is set
+	foundMethod := false
+	for _, chunk := range chunks {
+		if chunk.ChunkType == "method" {
+			foundMethod = true
+			if chunk.Metadata["receiver"] == "" {
+				t.Error("Expected receiver metadata for method")
+			}
+			if chunk.Metadata["signature"] == "" {
+				t.Error("Expected signature metadata for method")
+			}
+		}
+		// All code chunks should have metadata
+		if chunk.Metadata == nil {
+			t.Errorf("Chunk %s has nil metadata", chunk.Name)
+		}
+	}
+
+	if !foundMethod {
+		t.Error("Expected to find at least one method chunk")
+	}
+}

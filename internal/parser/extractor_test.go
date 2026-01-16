@@ -309,3 +309,583 @@ func (p *Parser) GetRootNode(tree *sitter.Tree) *sitter.Node {
 			chunks[i].Name, chunks[i].Type, chunks[i].StartLine, chunks[i].EndLine)
 	}
 }
+
+// TestExtractPythonFunctions tests Python function extraction
+func TestExtractPythonFunctions(t *testing.T) {
+	pythonCode := `def greet(name):
+    """Say hello to someone."""
+    return f"Hello, {name}!"
+
+class Person:
+    """A person class."""
+    def __init__(self, name):
+        self.name = name
+
+    def say_hello(self):
+        """Say hello using name."""
+        return greet(self.name)
+`
+
+	parser, err := NewParser(LanguagePython)
+	if err != nil {
+		t.Fatalf("NewParser failed: %v", err)
+	}
+
+	extractor := NewExtractor(parser, []byte(pythonCode))
+	chunks, err := extractor.ExtractFunctions(context.Background())
+	if err != nil {
+		t.Fatalf("ExtractFunctions failed: %v", err)
+	}
+
+	// Should extract greet function, Person class, __init__ and say_hello methods
+	if len(chunks) == 0 {
+		t.Fatal("Expected at least one chunk from Python code")
+	}
+
+	// Verify we got some functions/classes
+	foundFunction := false
+	foundClass := false
+	for _, chunk := range chunks {
+		if chunk.Type == ChunkTypeFunction {
+			foundFunction = true
+		}
+		if chunk.Type == ChunkTypeClass {
+			foundClass = true
+		}
+		t.Logf("Extracted Python: %s (type=%s, lines=%d-%d)",
+			chunk.Name, chunk.Type, chunk.StartLine, chunk.EndLine)
+	}
+
+	if !foundFunction && !foundClass {
+		t.Error("Expected to find at least one function or class in Python code")
+	}
+}
+
+// TestExtractJavaScriptFunctions tests JavaScript function extraction
+func TestExtractJavaScriptFunctions(t *testing.T) {
+	jsCode := `function add(a, b) {
+    return a + b;
+}
+
+const multiply = (x, y) => x * y;
+
+class Calculator {
+    constructor() {
+        this.result = 0;
+    }
+
+    add(n) {
+        this.result += n;
+        return this;
+    }
+}
+`
+
+	parser, err := NewParser(LanguageJavaScript)
+	if err != nil {
+		t.Fatalf("NewParser failed: %v", err)
+	}
+
+	extractor := NewExtractor(parser, []byte(jsCode))
+	chunks, err := extractor.ExtractFunctions(context.Background())
+	if err != nil {
+		t.Fatalf("ExtractFunctions failed: %v", err)
+	}
+
+	if len(chunks) == 0 {
+		t.Fatal("Expected at least one chunk from JavaScript code")
+	}
+
+	// Log what we found
+	for _, chunk := range chunks {
+		t.Logf("Extracted JavaScript: %s (type=%s, lines=%d-%d)",
+			chunk.Name, chunk.Type, chunk.StartLine, chunk.EndLine)
+	}
+}
+
+// TestExtractTypeScriptFunctions tests TypeScript function extraction
+func TestExtractTypeScriptFunctions(t *testing.T) {
+	tsCode := `interface User {
+    name: string;
+    age: number;
+}
+
+function createUser(name: string, age: number): User {
+    return { name, age };
+}
+
+class UserManager {
+    private users: User[] = [];
+
+    addUser(user: User): void {
+        this.users.push(user);
+    }
+}
+`
+
+	parser, err := NewParser(LanguageTypeScript)
+	if err != nil {
+		t.Fatalf("NewParser failed: %v", err)
+	}
+
+	extractor := NewExtractor(parser, []byte(tsCode))
+	chunks, err := extractor.ExtractFunctions(context.Background())
+	if err != nil {
+		t.Fatalf("ExtractFunctions failed: %v", err)
+	}
+
+	if len(chunks) == 0 {
+		t.Fatal("Expected at least one chunk from TypeScript code")
+	}
+
+	for _, chunk := range chunks {
+		t.Logf("Extracted TypeScript: %s (type=%s, lines=%d-%d)",
+			chunk.Name, chunk.Type, chunk.StartLine, chunk.EndLine)
+	}
+}
+
+// TestExtractRustFunctions tests Rust function extraction
+func TestExtractRustFunctions(t *testing.T) {
+	rustCode := `pub fn add(a: i32, b: i32) -> i32 {
+    a + b
+}
+
+pub struct Point {
+    x: f64,
+    y: f64,
+}
+
+impl Point {
+    pub fn new(x: f64, y: f64) -> Self {
+        Point { x, y }
+    }
+
+    pub fn distance(&self) -> f64 {
+        (self.x * self.x + self.y * self.y).sqrt()
+    }
+}
+`
+
+	parser, err := NewParser(LanguageRust)
+	if err != nil {
+		t.Fatalf("NewParser failed: %v", err)
+	}
+
+	extractor := NewExtractor(parser, []byte(rustCode))
+	chunks, err := extractor.ExtractFunctions(context.Background())
+	if err != nil {
+		t.Fatalf("ExtractFunctions failed: %v", err)
+	}
+
+	if len(chunks) == 0 {
+		t.Fatal("Expected at least one chunk from Rust code")
+	}
+
+	for _, chunk := range chunks {
+		t.Logf("Extracted Rust: %s (type=%s, lines=%d-%d)",
+			chunk.Name, chunk.Type, chunk.StartLine, chunk.EndLine)
+	}
+}
+
+// TestExtractJavaCode tests Java class, interface, enum extraction
+func TestExtractJavaCode(t *testing.T) {
+	javaCode := `package com.example;
+
+public interface Drawable {
+    void draw();
+}
+
+public enum Color {
+    RED, GREEN, BLUE
+}
+
+public class Circle implements Drawable {
+    private int radius;
+
+    public Circle(int radius) {
+        this.radius = radius;
+    }
+
+    @Override
+    public void draw() {
+        System.out.println("Drawing circle");
+    }
+
+    public int getRadius() {
+        return radius;
+    }
+}
+`
+
+	parser, err := NewParser(LanguageJava)
+	if err != nil {
+		t.Fatalf("NewParser failed: %v", err)
+	}
+
+	extractor := NewExtractor(parser, []byte(javaCode))
+	chunks, err := extractor.ExtractFunctions(context.Background())
+	if err != nil {
+		t.Fatalf("ExtractFunctions failed: %v", err)
+	}
+
+	if len(chunks) == 0 {
+		t.Fatal("Expected at least one chunk from Java code")
+	}
+
+	// Look for interface, enum, class types
+	foundInterface := false
+	foundEnum := false
+	foundClass := false
+
+	for _, chunk := range chunks {
+		if chunk.Type == ChunkTypeInterface {
+			foundInterface = true
+		}
+		if chunk.Type == ChunkTypeEnum {
+			foundEnum = true
+		}
+		if chunk.Type == ChunkTypeClass {
+			foundClass = true
+		}
+		t.Logf("Extracted Java: %s (type=%s, lines=%d-%d)",
+			chunk.Name, chunk.Type, chunk.StartLine, chunk.EndLine)
+	}
+
+	if !foundInterface {
+		t.Log("Warning: No interface found in Java code (may be tree-sitter limitation)")
+	}
+	if !foundEnum {
+		t.Log("Warning: No enum found in Java code (may be tree-sitter limitation)")
+	}
+	if !foundClass {
+		t.Error("Expected to find at least one class in Java code")
+	}
+}
+
+// TestExtractCppCode tests C++ namespace and class extraction
+func TestExtractCppCode(t *testing.T) {
+	cppCode := `namespace math {
+
+class Calculator {
+public:
+    int add(int a, int b) {
+        return a + b;
+    }
+
+    int subtract(int a, int b) {
+        return a - b;
+    }
+};
+
+int multiply(int a, int b) {
+    return a * b;
+}
+
+}  // namespace math
+`
+
+	parser, err := NewParser(LanguageCPP)
+	if err != nil {
+		t.Fatalf("NewParser failed: %v", err)
+	}
+
+	extractor := NewExtractor(parser, []byte(cppCode))
+	chunks, err := extractor.ExtractFunctions(context.Background())
+	if err != nil {
+		t.Fatalf("ExtractFunctions failed: %v", err)
+	}
+
+	if len(chunks) == 0 {
+		t.Fatal("Expected at least one chunk from C++ code")
+	}
+
+	for _, chunk := range chunks {
+		t.Logf("Extracted C++: %s (type=%s, lines=%d-%d)",
+			chunk.Name, chunk.Type, chunk.StartLine, chunk.EndLine)
+	}
+}
+
+// TestExtractScalaCode tests Scala object and trait extraction
+func TestExtractScalaCode(t *testing.T) {
+	scalaCode := `trait Animal {
+  def speak(): String
+}
+
+object Dog extends Animal {
+  def speak(): String = "Woof!"
+}
+
+class Cat extends Animal {
+  def speak(): String = "Meow!"
+}
+`
+
+	parser, err := NewParser(LanguageScala)
+	if err != nil {
+		t.Fatalf("NewParser failed: %v", err)
+	}
+
+	extractor := NewExtractor(parser, []byte(scalaCode))
+	chunks, err := extractor.ExtractFunctions(context.Background())
+	if err != nil {
+		t.Fatalf("ExtractFunctions failed: %v", err)
+	}
+
+	if len(chunks) == 0 {
+		t.Fatal("Expected at least one chunk from Scala code")
+	}
+
+	for _, chunk := range chunks {
+		t.Logf("Extracted Scala: %s (type=%s, lines=%d-%d)",
+			chunk.Name, chunk.Type, chunk.StartLine, chunk.EndLine)
+	}
+}
+
+// TestExtractorErrorHandling tests error conditions
+func TestExtractorErrorHandling(t *testing.T) {
+	// Test with invalid Go code (no package declaration)
+	invalidCode := `func broken {
+		this is not valid syntax
+	}`
+
+	parser, err := NewParser(LanguageGo)
+	if err != nil {
+		t.Fatalf("NewParser failed: %v", err)
+	}
+
+	extractor := NewExtractor(parser, []byte(invalidCode))
+	chunks, err := extractor.ExtractFunctions(context.Background())
+
+	// Should not error, just return empty or partial chunks
+	if err != nil {
+		t.Logf("Extract returned error (may be acceptable): %v", err)
+	}
+	t.Logf("Extracted %d chunks from invalid code", len(chunks))
+}
+
+// TestExtractorContextCancellation tests context cancellation
+func TestExtractorContextCancellation(t *testing.T) {
+	sourceCode := `package main
+
+func test() {
+	// Simple function
+}
+`
+
+	parser, err := NewParser(LanguageGo)
+	if err != nil {
+		t.Fatalf("NewParser failed: %v", err)
+	}
+
+	extractor := NewExtractor(parser, []byte(sourceCode))
+
+	// Create cancelled context
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // Cancel immediately
+
+	_, err = extractor.ExtractFunctions(ctx)
+	if err == nil {
+		t.Log("Warning: Expected error from cancelled context, but got none (may still succeed for small files)")
+	} else {
+		t.Logf("Got expected error from cancelled context: %v", err)
+	}
+}
+
+// TestExtractorWithRubyCode tests Ruby class and method extraction
+func TestExtractorWithRubyCode(t *testing.T) {
+	rubyCode := `class Person
+  attr_accessor :name, :age
+
+  def initialize(name, age)
+    @name = name
+    @age = age
+  end
+
+  def greet
+    puts "Hello, I'm #{@name}"
+  end
+end
+
+def standalone_function
+  puts "I'm standalone"
+end
+`
+
+	parser, err := NewParser(LanguageRuby)
+	if err != nil {
+		t.Fatalf("NewParser failed: %v", err)
+	}
+
+	extractor := NewExtractor(parser, []byte(rubyCode))
+	chunks, err := extractor.ExtractFunctions(context.Background())
+	if err != nil {
+		t.Fatalf("ExtractFunctions failed: %v", err)
+	}
+
+	if len(chunks) == 0 {
+		t.Fatal("Expected at least one chunk from Ruby code")
+	}
+
+	for _, chunk := range chunks {
+		t.Logf("Extracted Ruby: %s (type=%s, lines=%d-%d)",
+			chunk.Name, chunk.Type, chunk.StartLine, chunk.EndLine)
+	}
+}
+
+// TestExtractorWithPHPCode tests PHP class and function extraction
+func TestExtractorWithPHPCode(t *testing.T) {
+	phpCode := `<?php
+
+namespace App\Models;
+
+class User {
+    private $name;
+    private $email;
+
+    public function __construct($name, $email) {
+        $this->name = $name;
+        $this->email = $email;
+    }
+
+    public function getName() {
+        return $this->name;
+    }
+}
+
+function helper_function($arg) {
+    return strtoupper($arg);
+}
+`
+
+	parser, err := NewParser(LanguagePHP)
+	if err != nil {
+		t.Fatalf("NewParser failed: %v", err)
+	}
+
+	extractor := NewExtractor(parser, []byte(phpCode))
+	chunks, err := extractor.ExtractFunctions(context.Background())
+	if err != nil {
+		t.Fatalf("ExtractFunctions failed: %v", err)
+	}
+
+	if len(chunks) == 0 {
+		t.Fatal("Expected at least one chunk from PHP code")
+	}
+
+	for _, chunk := range chunks {
+		t.Logf("Extracted PHP: %s (type=%s, lines=%d-%d)",
+			chunk.Name, chunk.Type, chunk.StartLine, chunk.EndLine)
+	}
+}
+
+// TestExtractorWithCCode tests C struct and function extraction
+func TestExtractorWithCCode(t *testing.T) {
+	cCode := `#include <stdio.h>
+
+struct Point {
+    int x;
+    int y;
+};
+
+int add(int a, int b) {
+    return a + b;
+}
+
+void print_point(struct Point *p) {
+    printf("Point(%d, %d)\n", p->x, p->y);
+}
+`
+
+	parser, err := NewParser(LanguageC)
+	if err != nil {
+		t.Fatalf("NewParser failed: %v", err)
+	}
+
+	extractor := NewExtractor(parser, []byte(cCode))
+	chunks, err := extractor.ExtractFunctions(context.Background())
+	if err != nil {
+		t.Fatalf("ExtractFunctions failed: %v", err)
+	}
+
+	if len(chunks) == 0 {
+		t.Fatal("Expected at least one chunk from C code")
+	}
+
+	for _, chunk := range chunks {
+		t.Logf("Extracted C: %s (type=%s, lines=%d-%d)",
+			chunk.Name, chunk.Type, chunk.StartLine, chunk.EndLine)
+	}
+}
+
+// TestExtractorWithComplexGoCode tests interfaces with methods
+func TestExtractorWithComplexGoCode(t *testing.T) {
+	goCode := `package main
+
+import "io"
+
+// Reader interface with doc comment
+type Reader interface {
+	// Read reads data
+	Read(p []byte) (n int, err error)
+	// Close closes the reader
+	Close() error
+}
+
+// Implementation
+type FileReader struct {
+	path string
+}
+
+func (f *FileReader) Read(p []byte) (n int, err error) {
+	return 0, nil
+}
+
+func (f *FileReader) Close() error {
+	return nil
+}
+`
+
+	parser, err := NewGoParser()
+	if err != nil {
+		t.Fatalf("NewGoParser failed: %v", err)
+	}
+
+	extractor := NewExtractor(parser, []byte(goCode))
+	chunks, err := extractor.ExtractFunctions(context.Background())
+	if err != nil {
+		t.Fatalf("ExtractFunctions failed: %v", err)
+	}
+
+	// Should extract interface and struct and methods
+	foundInterface := false
+	foundStruct := false
+	foundMethod := false
+
+	for _, chunk := range chunks {
+		if chunk.Type == ChunkTypeInterface {
+			foundInterface = true
+			// Check for interface methods in metadata
+			if chunk.Metadata != nil {
+				t.Logf("Interface %s metadata: %v", chunk.Name, chunk.Metadata)
+			}
+		}
+		if chunk.Type == ChunkTypeStruct {
+			foundStruct = true
+		}
+		if chunk.Type == ChunkTypeMethod {
+			foundMethod = true
+		}
+		t.Logf("Extracted Go: %s (type=%s, lines=%d-%d)",
+			chunk.Name, chunk.Type, chunk.StartLine, chunk.EndLine)
+	}
+
+	if !foundInterface {
+		t.Log("Warning: No interface found (may need metadata)")
+	}
+	if !foundStruct {
+		t.Error("Expected to find struct")
+	}
+	if !foundMethod {
+		t.Error("Expected to find methods")
+	}
+}

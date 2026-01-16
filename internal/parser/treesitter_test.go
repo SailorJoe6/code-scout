@@ -161,3 +161,83 @@ func NewGoParser() (*Parser, error) {
 
 	t.Logf("Successfully parsed real Go code: %d child nodes", rootNode.ChildCount())
 }
+
+// TestNewParserUnsupportedLanguage tests error handling for unsupported languages
+func TestNewParserUnsupportedLanguage(t *testing.T) {
+	_, err := NewParser(LanguageUnknown)
+	if err == nil {
+		t.Error("Expected error for unsupported language")
+	}
+
+	// Test with invalid language value (beyond known languages)
+	_, err = NewParser(Language(999))
+	if err == nil {
+		t.Error("Expected error for invalid language value")
+	}
+}
+
+// TestNewParserAllSupportedLanguages tests that all supported languages can be initialized
+func TestNewParserAllSupportedLanguages(t *testing.T) {
+	supportedLanguages := []Language{
+		LanguageGo,
+		LanguagePython,
+		LanguageJavaScript,
+		LanguageTypeScript,
+		LanguageJava,
+		LanguageRust,
+		LanguageC,
+		LanguageCPP,
+		LanguageRuby,
+		LanguagePHP,
+		LanguageScala,
+	}
+
+	for _, lang := range supportedLanguages {
+		t.Run(lang.String(), func(t *testing.T) {
+			parser, err := NewParser(lang)
+			if err != nil {
+				t.Errorf("Failed to create parser for %s: %v", lang.String(), err)
+			}
+			if parser == nil {
+				t.Errorf("Parser is nil for %s", lang.String())
+			}
+			if parser != nil && parser.Language() != lang {
+				t.Errorf("Expected language %s, got %s", lang.String(), parser.Language().String())
+			}
+		})
+	}
+}
+
+// TestParseEmptySource tests parsing empty source code
+func TestParseEmptySource(t *testing.T) {
+	parser, err := NewGoParser()
+	if err != nil {
+		t.Fatalf("Failed to create Go parser: %v", err)
+	}
+
+	ctx := context.Background()
+	tree, err := parser.Parse(ctx, []byte(""))
+	if err != nil {
+		t.Errorf("Parse failed for empty source: %v", err)
+	}
+	if tree == nil {
+		t.Error("Tree is nil for empty source")
+	}
+}
+
+// TestParseNilSource tests error handling for nil source
+func TestParseNilSource(t *testing.T) {
+	parser, err := NewGoParser()
+	if err != nil {
+		t.Fatalf("Failed to create Go parser: %v", err)
+	}
+
+	ctx := context.Background()
+	tree, err := parser.Parse(ctx, nil)
+	if err != nil {
+		t.Logf("Parse returned error for nil source (expected): %v", err)
+	}
+	if tree == nil {
+		t.Log("Tree is nil for nil source (expected)")
+	}
+}
