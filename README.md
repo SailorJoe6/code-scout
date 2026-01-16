@@ -14,6 +14,7 @@ Code Scout uses open source embedding models to create semantic representations 
 - **AI Agent Optimized**: Built specifically for AI coding assistants like Claude and Codex
 - **Full Codebase Awareness**: Enables AI agents to understand the complete context of your project
 - **Multi-Language Support**: Semantic chunking for 11 programming languages
+- **Smart Filtering**: Respects `.gitignore` and `.code-scout-ignore` to exclude unwanted files
 
 ## Language Support
 
@@ -47,6 +48,45 @@ Traditional code search tools split files by line count or character limits, oft
 ### Language Detection
 
 Code Scout automatically detects the language of each file based on file extension. For files with ambiguous extensions (e.g., `.h` files could be C or C++), it uses heuristic analysis to determine the correct language.
+
+## Ignore File Support
+
+Code Scout respects `.gitignore` and `.code-scout-ignore` files to filter which files get indexed. This prevents indexing of build artifacts, dependencies, and other files you don't want in your semantic search.
+
+### How It Works
+
+- **`.gitignore`**: Automatically respected, just like git
+- **`.code-scout-ignore`**: Project-specific patterns for code-scout only
+- **Patterns combine**: Both files are read and patterns are merged
+- **Gitignore syntax**: Standard gitignore pattern matching (wildcards, negation, etc.)
+- **Always ignored**: `.code-scout/` directory (hardcoded)
+
+### Example `.code-scout-ignore`
+
+```
+# Exclude examples and test data
+examples/
+test_data/
+
+# Exclude generated files
+*.gen.go
+*.pb.go
+
+# Exclude vendor dependencies
+vendor/
+node_modules/
+```
+
+### Pattern Syntax
+
+Supports standard gitignore patterns:
+- `*.log` - Wildcard matching
+- `build/` - Directory matching (trailing slash)
+- `temp.py` - Exact filename matching
+- `# comment` - Comments (lines starting with #)
+- Blank lines are ignored
+
+Both files are optional. If neither exists, only hidden files/directories (those starting with `.`) are automatically skipped.
 
 ## Embedding Models
 
