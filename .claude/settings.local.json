@@ -48,7 +48,14 @@
       "Bash(make test:*)",
       "Bash(ls:*)",
       "Skill(prepare)",
-      "Skill(prepare:*)"
+      "Skill(prepare:*)",
+      "Bash(grep:*)",
+      "Bash(if [ -f coverage.out ])",
+      "Bash(then go tool cover -func=coverage.out)",
+      "Bash(else echo \"No coverage file found\")",
+      "Bash(fi)",
+      "Bash(sort:*)",
+      "Bash(wc:*)"
     ],
     "deny": [],
     "ask": []
