@@ -17,10 +17,7 @@ The [design/](design/) folder contains detailed technical documentation about Co
 - **[Vector Storage](design/vector-storage.md)** - LanceDB schema and query patterns
 - **[CLI Interface](design/cli-interface.md)** - Command-line interface and workflows
 - **[Extension Points](design/extension-points.md)** - How to extend Code Scout
-
-### Reference Material
-
-The [reference_material/](reference_material/) folder contains external documentation and examples used during development.
+- **[Language Detection](design/language-detection.md)** - File extension mapping and heuristics
 
 ## Quick Navigation
 
@@ -31,7 +28,6 @@ The [reference_material/](reference_material/) folder contains external document
 
 **For Developers:**
 - See [DEVELOPERS.md](../DEVELOPERS.md) for build setup and requirements
-- See [QUICKSTART.md](../QUICKSTART.md) for getting started
 - See [Extension Points](design/extension-points.md) for adding new languages or features
 
 **For Users:**

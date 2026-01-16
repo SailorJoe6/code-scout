@@ -8,6 +8,47 @@ Code Scout is a semantic code search tool built on four core principles:
 3. **AI-optimized** - designed for AI agent consumption
 4. **Incremental** - fast updates for changed files
 
+## Key Insight: Dual-Model Embedding
+
+No single embedding model can optimally represent both **source code semantics** and **natural language documentation**.
+
+**Solution:** Perform embedding in two independent passes using two separate models, then unify all embeddings in a single vector DB namespace:
+
+1. **Code Embedding Pass** - Load a code-optimized model, chunk & embed only code files
+2. **Docs Embedding Pass** - Load a text-optimized model, chunk & embed only documentation files
+
+LLM agents can then choose the correct embedding model for each query type (code question vs. documentation question) or use hybrid mode and get insights from both.
+
+### Why This Design Works
+
+**Code Requires Different Embeddings**
+
+Code semantics are structured and hierarchical. A model trained on code learns:
+- AST-like patterns
+- Function and class boundaries
+- Variable naming relationships
+- Multi-file dependencies
+
+Natural-language models don't capture these well.
+
+**Docs Require Strong Natural-Language Semantics**
+
+Markdown and text require:
+- Semantic understanding
+- Summarization
+- Conceptual linking
+
+Code models underperform here.
+
+**Unified Vector Space via Metadata**
+
+Although embeddings differ, the system unifies them at:
+- **Storage level** - same LanceDB database
+- **Metadata level** - file path, chunk type, language, embedding type
+- **Retrieval level** - dual-query strategy merges results
+
+We do *not* require vector spaces to be numerically aligned.
+
 ## System Architecture
 
 ```

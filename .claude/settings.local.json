@@ -36,7 +36,19 @@
       "WebFetch(domain:openrouter.ai)",
       "WebFetch(domain:huggingface.github.io)",
       "WebFetch(domain:www.nomic.ai)",
-      "WebFetch(domain:docs.vllm.ai)"
+      "WebFetch(domain:docs.vllm.ai)",
+      "Bash(git commit:*)",
+      "Bash(git push:*)",
+      "Bash(pgrep:*)",
+      "Bash(ollama list:*)",
+      "Bash(source:*)",
+      "Bash(go tool cover:*)",
+      "Bash(make test-coverage:*)",
+      "Bash(make test-verbose:*)",
+      "Bash(make test:*)",
+      "Bash(ls:*)",
+      "Skill(prepare)",
+      "Skill(prepare:*)"
     ],
     "deny": [],
     "ask": []

@@ -1,10 +1,6 @@
 ## Before You Start Developing
 
-**IMPORTANT**: Before making any code changes, review the [Developer Guide](DEVELOPERS.md) for:
-- Build requirements and setup instructions
-- Required environment variables for CGO/LanceDB
-- Common build issues and solutions
-- Project structure overview
+**IMPORTANT**: ALWAYS run `/prepare` at the start of EVERY session. This command will guide you through reading the essential documentation (README.md, DEVELOPERS.md, docs/README.md) needed to understand the project.
 
 **Quick check**: If you need to build the project, you MUST have the LanceDB native libraries downloaded and CGO environment variables configured. See DEVELOPERS.md for details.
 

@@ -2,14 +2,6 @@
 
 This directory contains design documentation for Code Scout, optimized for AI agents to understand the system architecture, implementation details, and extension points.
 
-## Purpose
-
-Code Scout is a semantic code search tool that helps AI agents understand codebases by:
-1. Parsing code into meaningful semantic units (functions, methods, types)
-2. Generating embeddings for semantic similarity search
-3. Storing in a vector database for fast retrieval
-4. Deduplicating results to reduce noise
-
 ## Quick Navigation
 
 ### Core Architecture
@@ -19,6 +11,7 @@ Code Scout is a semantic code search tool that helps AI agents understand codeba
 
 ### Implementation Details
 - [**semantic-chunking.md**](semantic-chunking.md) - Tree-sitter based code parsing and chunking
+- [**language-detection.md**](language-detection.md) - File extension mapping and C/C++ heuristics
 - [**embedding-strategy.md**](embedding-strategy.md) - Embedding generation and deduplication
 - [**vector-storage.md**](vector-storage.md) - LanceDB schema and query patterns
 

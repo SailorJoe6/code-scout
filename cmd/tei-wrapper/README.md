@@ -19,59 +19,9 @@ A lightweight HTTP wrapper around [Text Embeddings Inference (TEI)](https://gith
 
 ### 1. Install TEI
 
-TEI is a Rust-based embedding server from Hugging Face. Choose one method:
+See [TEI_SETUP.md](../../docs/guides/TEI_SETUP.md) for complete TEI installation instructions for all platforms (macOS, Linux, Windows).
 
-#### Option A: Homebrew (Mac - Recommended)
-
-```bash
-# Install TEI via Homebrew
-brew install huggingface/tap/text-embeddings-inference
-```
-
-**Simplest method for Mac users!**
-
-#### Option B: Pre-built Binary
-
-```bash
-# Download the latest release for your platform
-# macOS (ARM64):
-curl -LO https://github.com/huggingface/text-embeddings-inference/releases/latest/download/text-embeddings-router-aarch64-apple-darwin
-chmod +x text-embeddings-router-aarch64-apple-darwin
-sudo mv text-embeddings-router-aarch64-apple-darwin /usr/local/bin/text-embeddings-router
-
-# macOS (Intel):
-curl -LO https://github.com/huggingface/text-embeddings-inference/releases/latest/download/text-embeddings-router-x86_64-apple-darwin
-chmod +x text-embeddings-router-x86_64-apple-darwin
-sudo mv text-embeddings-router-x86_64-apple-darwin /usr/local/bin/text-embeddings-router
-
-# Linux (x86_64):
-curl -LO https://github.com/huggingface/text-embeddings-inference/releases/latest/download/text-embeddings-router-x86_64-unknown-linux-gnu
-chmod +x text-embeddings-router-x86_64-unknown-linux-gnu
-sudo mv text-embeddings-router-x86_64-unknown-linux-gnu /usr/local/bin/text-embeddings-router
-```
-
-#### Option C: Docker
-
-```bash
-# Run TEI in a container (managed by wrapper)
-docker pull ghcr.io/huggingface/text-embeddings-inference:latest
-```
-
-#### Option D: Build from Source
-
-Requires Rust toolchain:
-
-```bash
-cargo install text-embeddings-router
-```
-
-### 2. Verify TEI Installation
-
-```bash
-text-embeddings-router --version
-```
-
-### 3. Build the Wrapper
+### 2. Build the Wrapper
 
 ```bash
 cd cmd/tei-wrapper
@@ -167,11 +117,7 @@ Health check endpoint.
 
 ## Supported Models
 
-- **nomic-ai/nomic-embed-text-v1.5** - General text embeddings (137M params, 262MB)
-- **nomic-ai/nomic-embed-code** - Code embeddings (7B params, ~8GB RAM)
-- **nomic-ai/CodeRankEmbed** - Alternative code embeddings (137M params, 521MB)
-
-All models are automatically downloaded from Hugging Face on first use.
+See [TEI_SETUP.md](../../docs/guides/TEI_SETUP.md#model-selection) for supported models and recommendations.
 
 ## Using with code-scout
 
