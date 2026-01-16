@@ -279,7 +279,7 @@ Update this table as each slice is completed:
 | 2 | `internal/config` | ✅ Complete | 92.9% | 083858f | 2026-01-16 |
 | 3 | `cmd/tei-wrapper` | ✅ Complete | 76.8% | b5334bd | 2026-01-16 |
 | 4 | `internal/storage` | ✅ Complete | 91.5% | 011148a | 2026-01-16 |
-| 5 | `cmd/code-scout` | ✅ Complete | 79.9% | (pending) | 2026-01-16 |
+| 5 | `cmd/code-scout` | ✅ Complete | 79.9% | bf029fc | 2026-01-16 |
 
 Status Legend:
 - ⏳ Not started
