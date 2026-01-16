@@ -4,18 +4,18 @@
 
 Increase test coverage across all Code Scout components to achieve at least 90% coverage per component, ensuring robust testing of core functionality, error paths, and edge cases.
 
-## Current State (Baseline: 82.2% overall)
+## Current State (Baseline: 82.2% overall, updated after Slice 2: ~85%+ overall)
 
 | Component | Current Coverage | Target | Gap |
 |-----------|-----------------|--------|-----|
 | `internal/scanner` | 100.0% | 90% | ✅ Already achieved |
 | `internal/embeddings` | 98.0% | 90% | ✅ Already achieved |
 | `internal/chunker` | 95.1% | 90% | ✅ Already achieved |
-| `internal/parser` | 89.0% | 90% | +1.0% needed |
-| `internal/config` | 52.2% | 90% | +37.8% needed |
+| `internal/parser` | 90.5% | 90% | ✅ Achieved (Slice 1) |
+| `internal/config` | 92.9% | 90% | ✅ Achieved (Slice 2) |
 | `cmd/tei-wrapper` | 60.1% | 90% | +29.9% needed |
 | `cmd/code-scout` | No unit tests | 90% | New tests needed |
-| `internal/storage` | Not in report | 90% | Investigation needed |
+| `internal/storage` | 90.5% | 90% | ✅ Already achieved |
 
 ## Implementation Strategy
 
@@ -220,7 +220,7 @@ Update this table as each slice is completed:
 | Slice | Component | Status | Final Coverage | Commit SHA | Date |
 |-------|-----------|--------|----------------|------------|------|
 | 1 | `internal/parser` | ✅ Complete | 90.5% | fa32a77 | 2026-01-16 |
-| 2 | `internal/config` | ⏳ Not started | - | - | - |
+| 2 | `internal/config` | ✅ Complete | 92.9% | (pending) | 2026-01-16 |
 | 3 | `cmd/tei-wrapper` | ⏳ Not started | - | - | - |
 | 4 | `internal/storage` | ⏳ Not started | - | - | - |
 | 5 | `cmd/code-scout` | ⏳ Not started | - | - | - |
