@@ -40,10 +40,11 @@ The TEI wrapper provides the best of both worlds:
 The wrapper is a thin HTTP proxy that:
 
 1. **Exposes OpenAI-compatible `/v1/embeddings` endpoint** on port 11434 (Ollama-compatible)
-2. **Manages a single TEI process** running on internal port 8080
-3. **Detects model changes** in incoming requests
-4. **Automatically restarts TEI** with the requested model
-5. **Optional: Preloads preferred model** when idle to minimize switching delays
+2. **Exposes TEI-compatible `/rerank` endpoint** for cross-encoder reranking (optional)
+3. **Manages TEI processes** - one for embeddings (port 8080), optionally one for reranking (port 8081)
+4. **Detects model changes** in incoming embedding requests
+5. **Automatically restarts TEI** with the requested model
+6. **Optional: Preloads preferred model** when idle to minimize switching delays
 
 ### Model Switching Flow
 
@@ -115,6 +116,8 @@ Start the wrapper with default settings:
 | `--idle-preload` | bool | `false` | Enable idle-based model preloading |
 | `--idle-timeout` | duration | `30s` | Idle time before preloading preferred model |
 | `--max-batch-tokens` | int | `8192` | Maximum batch tokens (controls memory usage, lower = less RAM) |
+| `--rerank-port` | int | `8081` | Port for dedicated reranker TEI instance (optional) |
+| `--rerank-model` | string | `""` | Model ID for reranker (e.g., BAAI/bge-reranker-base). Empty = reranker disabled |
 
 ### Example Configurations
 
@@ -138,6 +141,19 @@ Start the wrapper with default settings:
 ./tei-wrapper \
   --tei-binary /opt/homebrew/bin/text-embeddings-router
 ```
+
+**With reranking enabled:**
+```bash
+./tei-wrapper \
+  --model nomic-ai/nomic-embed-text-v1.5 \
+  --rerank-model BAAI/bge-reranker-base
+```
+
+This starts two TEI instances:
+- Embedding TEI on port 8080 (hot-swappable models)
+- Reranker TEI on port 8081 (dedicated instance)
+
+See [RERANKER_SETUP.md](RERANKER_SETUP.md) for complete reranking documentation.
 
 ## Idle Preloading
 
@@ -184,7 +200,7 @@ The wrapper supports optional idle-based preloading to minimize model switching 
 
 ### POST /v1/embeddings
 
-OpenAI-compatible endpoint for generating embeddings.
+OpenAI-compatible endpoint for generating embeddings from the embedding TEI instance.
 
 **Request:**
 ```json
@@ -226,15 +242,71 @@ Retry-After: 5
 Model switch in progress, please retry
 ```
 
+### POST /rerank
+
+TEI-compatible endpoint for cross-encoder reranking. Only available if `--rerank-model` is configured.
+
+**Request:**
+```json
+{
+  "query": "search query",
+  "texts": ["document 1", "document 2", "document 3"],
+  "raw_scores": false,
+  "return_text": false
+}
+```
+
+**Response (Success):**
+```json
+[
+  {"index": 1, "score": 0.95},
+  {"index": 0, "score": 0.87},
+  {"index": 2, "score": 0.71}
+]
+```
+
+Results are automatically sorted by relevance score (highest first).
+
+**Response (Reranker Not Configured):**
+```
+HTTP/1.1 404 Not Found
+
+Reranker not enabled
+```
+
+**Response (Reranker Unavailable):**
+```
+HTTP/1.1 503 Service Unavailable
+Retry-After: 5
+
+Reranker TEI is not available
+```
+
+See [RERANKER_SETUP.md](RERANKER_SETUP.md) for complete reranking setup and usage.
+
 ### GET /health
 
-Health check endpoint with current model information.
+Health check endpoint with current embedding model and optional reranker status.
 
-**Response (Healthy):**
+**Response (Healthy, No Reranker):**
 ```json
 {
   "status": "ok",
-  "model": "nomic-ai/CodeRankEmbed"
+  "embedding_model": "nomic-ai/CodeRankEmbed"
+}
+```
+
+**Response (Healthy, With Reranker):**
+```json
+{
+  "status": "ok",
+  "embedding_model": "nomic-ai/CodeRankEmbed",
+  "reranker": {
+    "enabled": true,
+    "healthy": true,
+    "model": "BAAI/bge-reranker-base",
+    "port": 8081
+  }
 }
 ```
 
@@ -242,8 +314,7 @@ Health check endpoint with current model information.
 ```json
 {
   "status": "switching",
-  "model": "nomic-ai/CodeRankEmbed",
-  "switching": true
+  "embedding_model": "nomic-ai/CodeRankEmbed"
 }
 ```
 
@@ -251,10 +322,16 @@ Health check endpoint with current model information.
 ```json
 {
   "status": "unhealthy",
-  "model": "nomic-ai/CodeRankEmbed",
+  "embedding_model": "nomic-ai/CodeRankEmbed",
   "error": "TEI is not responding"
 }
 ```
+
+**Reranker health fields:**
+- `enabled`: `true` if `--rerank-model` was configured at startup
+- `healthy`: `true` if reranker TEI instance is responding
+- `model`: The reranker model ID
+- `port`: The port the reranker TEI is running on
 
 ## Using with Code Scout
 
@@ -290,9 +367,13 @@ Create `.code-scout.json` in your repo:
 {
   "endpoint": "http://localhost:11434",
   "code_model": "nomic-ai/CodeRankEmbed",
-  "text_model": "nomic-ai/nomic-embed-text-v1.5"
+  "text_model": "nomic-ai/nomic-embed-text-v1.5",
+  "rerank_model": "BAAI/bge-reranker-base",
+  "rerank_top_k": 25
 }
 ```
+
+See [RERANKER_SETUP.md](RERANKER_SETUP.md) for reranking configuration details.
 
 ## Supported Models
 
@@ -496,12 +577,61 @@ Memory usage scales quadratically with `--max-batch-tokens`. The default (8192) 
 2. Enable idle preload to minimize switching: `--idle-preload`
 3. For high-throughput needs, use dual TEI instances instead
 
+## Architecture: Dual TEI Instances
+
+When reranking is enabled (`--rerank-model` set), the wrapper manages two separate TEI processes:
+
+```
+┌─────────────────┐
+│   code-scout    │
+│                 │
+│  Config:        │
+│  endpoint:      │
+│   localhost:    │
+│   11434         │
+└────────┬────────┘
+         │
+         │ Single endpoint
+         ▼
+┌─────────────────────────────────┐
+│       tei-wrapper:11434         │
+│                                 │
+│  Routes:                        │
+│  • /v1/embeddings → TEI:8080   │
+│  • /rerank        → TEI:8081   │
+│  • /health                      │
+└────────┬────────────────┬───────┘
+         │                │
+         ▼                ▼
+┌────────────────┐  ┌──────────────────┐
+│  TEI:8080      │  │  TEI:8081        │
+│                │  │                  │
+│  Embeddings    │  │  Reranker        │
+│  (hot-swap)    │  │  (dedicated)     │
+└────────────────┘  └──────────────────┘
+```
+
+**Key points:**
+- Code Scout only needs to know about the wrapper endpoint (localhost:11434)
+- The wrapper internally routes `/v1/embeddings` to the embedding TEI
+- The wrapper internally routes `/rerank` to the reranker TEI
+- Embedding TEI hot-swaps between code and text models
+- Reranker TEI runs a dedicated cross-encoder model (no swapping)
+
+**Memory usage:**
+- Single-model mode (no reranker): 4-8GB
+- With reranker: +500MB to +2GB depending on model
+
+See [RERANKER_SETUP.md](RERANKER_SETUP.md) for deployment details.
+
 ## Development Status
 
-**Implemented (Slices 1-3):**
+**Implemented:**
 - ✅ OpenAI-compatible `/v1/embeddings` endpoint
-- ✅ Model hot-swapping (automatic TEI restart on model change)
-- ✅ Health endpoint with model status
+- ✅ TEI-compatible `/rerank` endpoint (optional)
+- ✅ Dual TEI instance management (embeddings + reranker)
+- ✅ Model hot-swapping for embeddings (automatic TEI restart on model change)
+- ✅ Health endpoint with embedding and reranker status
 - ✅ 503 response during model switches
 - ✅ Background preloading of preferred model on idle (optional)
 - ✅ Idle detection with configurable timeout
@@ -522,6 +652,7 @@ For technical details on the wrapper's implementation, see:
 ## Next Steps
 
 - **For TEI installation:** See [TEI_SETUP.md](TEI_SETUP.md)
+- **For reranking setup:** See [RERANKER_SETUP.md](RERANKER_SETUP.md)
 - **For background daemon:** See [BACKGROUND_DAEMON.md](BACKGROUND_DAEMON.md)
 - **For comparison with Ollama:** See [OLLAMA_SETUP.md](OLLAMA_SETUP.md)
 - **For contributing:** See [DEVELOPERS.md](../../DEVELOPERS.md)

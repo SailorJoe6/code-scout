@@ -611,12 +611,13 @@ Per the specification:
 - [x] End-to-end testing passes with BAAI/bge-reranker-base
 - [x] Testing validated with multiple queries from test suite
 - [x] Identified and fixed truncation issue for long chunks (512 token limit)
-- [ ] Additional models tested and documented (deferred to Phase 3 docs)
+- [x] Additional models documented in RERANKER_SETUP.md with selection guidance
 
-**Phase 3 - Documentation (PENDING)**
-- [ ] RERANKER_SETUP.md guide published
-- [ ] TEI_WRAPPER.md updated with reranker docs
-- [ ] README.md updated with reranking examples
+**Phase 3 - Documentation (COMPLETE)**
+- [x] RERANKER_SETUP.md guide published
+- [x] guides/README.md created with index of all guides
+- [x] TEI_WRAPPER.md updated with reranker docs
+- [x] README.md updated with reranking examples
 
 ---
 

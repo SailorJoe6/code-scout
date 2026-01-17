@@ -10,11 +10,13 @@ Code Scout uses open source embedding models to create semantic representations 
 
 - **Open Source Embeddings**: Leverages open source embedding models for code vectorization
 - **Code + Documentation**: Specially designed to store code alongside markdown documentation
+- **Cross-Encoder Reranking**: Optional reranking for significantly improved search relevance
 - **Local Vector Database**: All data stays local - no cloud dependencies
 - **AI Agent Optimized**: Built specifically for AI coding assistants like Claude and Codex
 - **Full Codebase Awareness**: Enables AI agents to understand the complete context of your project
 - **Multi-Language Support**: Semantic chunking for 11 programming languages
 - **Smart Filtering**: Respects `.gitignore` and `.code-scout-ignore` to exclude unwanted files
+- **Background Indexing**: Automatic re-indexing on file changes
 
 ## Language Support
 
@@ -238,12 +240,11 @@ Create a JSON file with the following structure:
 ```
 
 **Fields:**
-- `endpoint`: The base URL of the OpenAI-compatible embedding API (no trailing slash)
+- `endpoint`: The base URL of the tei-wrapper or OpenAI-compatible embedding API (no trailing slash)
 - `api_key`: (Optional) API key for authentication. Sent as `Authorization: Bearer <api_key>` header
 - `code_model`: Model name to use for code embeddings
 - `text_model`: Model name to use for documentation embeddings
-- `rerank_model`: (Optional) Cross-encoder model name for reranking (e.g., `BAAI/bge-reranker-large`). Requires TEI with `/rerank` endpoint
-- `rerank_endpoint`: (Optional) Separate endpoint for reranking service. Defaults to `endpoint` if not specified
+- `rerank_model`: (Optional) Cross-encoder model name for reranking (e.g., `BAAI/bge-reranker-base`). Requires tei-wrapper with `/rerank` endpoint (see [RERANKER_SETUP.md](docs/guides/RERANKER_SETUP.md))
 - `rerank_top_k`: (Optional) Number of top results to rerank (defaults to search `--limit` when `rerank_model` is set)
 - `single_model_mode`: (Optional, default: `true`) Use single TEI process with model switching. Set to `false` for multi-model mode (runs separate TEI processes for each model simultaneously, higher memory but faster)
 
@@ -298,23 +299,40 @@ Defaults target the TEI wrapper (CodeRankEmbed + nomic-embed-text-v1.5). If you 
 ```
 Note: `nomic-ai/nomic-embed-code` requires a powerful GPU and lots of RAM and is Ollama-only today. If your remote server runs TEI, use `nomic-ai/CodeRankEmbed` instead.
 
-**With Cross-Encoder Reranking (Separate TEI Server)**:
+**With Cross-Encoder Reranking (Recommended)**:
 ```json
 {
   "endpoint": "http://localhost:11434",
   "code_model": "nomic-ai/CodeRankEmbed",
   "text_model": "nomic-ai/nomic-embed-text-v1.5",
-  "rerank_model": "BAAI/bge-reranker-large",
-  "rerank_endpoint": "http://localhost:8080",
+  "rerank_model": "BAAI/bge-reranker-base",
   "rerank_top_k": 25
 }
 ```
-This configuration uses a separate TEI server running a cross-encoder model for reranking. Deploy the reranker with:
+
+This configuration enables reranking for significantly improved search relevance. The tei-wrapper automatically manages both embedding and reranker TEI instances.
+
+**Start tei-wrapper with reranking:**
 ```bash
-docker run --gpus all -p 8080:80 \
-  ghcr.io/huggingface/text-embeddings-inference:latest \
-  --model-id BAAI/bge-reranker-large
+cd cmd/tei-wrapper
+go build -o tei-wrapper .
+./tei-wrapper \
+  --model nomic-ai/nomic-embed-text-v1.5 \
+  --rerank-model BAAI/bge-reranker-base
 ```
+
+**Search with reranking:**
+```bash
+code-scout search "authentication logic" --limit 10
+
+# Output shows both vector and rerank scores:
+# Found 10 unique hybrid results (reranked by BAAI/bge-reranker-base) for: authentication logic
+# 1. internal/auth/handler.go:23-45 (vector: 0.234, rerank: 0.95)
+#    Language: go | Source: code | Chunk: function
+#    ...
+```
+
+See [RERANKER_SETUP.md](docs/guides/RERANKER_SETUP.md) for complete reranking setup, model selection, and performance tuning.
 
 ### CLI Flag Override
 
@@ -416,13 +434,15 @@ code-scout search "authentication"
 **Features:**
 - ✅ **3-4x faster** than Ollama
 - ✅ **Automatic model switching** (code vs documentation)
+- ✅ **Optional cross-encoder reranking** for improved search relevance
 - ✅ **Background indexing** (no manual `code-scout index`)
 - ✅ **GPU acceleration** (Metal on Mac, CUDA on Linux/Windows)
-- ✅ **Lower memory** (4-8GB vs 8-16GB for dual TEI)
+- ✅ **Lower memory** (4-8GB base, +500MB-2GB with reranking)
 
 **Documentation:**
 - [TEI Setup Guide](docs/guides/TEI_SETUP.md) - Install TEI for your platform
 - [TEI Wrapper Guide](docs/guides/TEI_WRAPPER.md) - Setup and usage
+- [Reranker Setup Guide](docs/guides/RERANKER_SETUP.md) - Cross-encoder reranking for improved relevance
 - [Background Daemon Guide](docs/guides/BACKGROUND_DAEMON.md) - Auto-indexing
 
 ### Alternative: Ollama
