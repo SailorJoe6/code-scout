@@ -82,7 +82,7 @@ type Server struct {
 
 func main() {
 	// Command line flags
-	port := flag.Int("port", 11434, "Port to listen on (Ollama-compatible default)")
+	port := flag.Int("port", 11435, "Port to listen on (default avoids Ollama 11434)")
 	teiPort := flag.Int("tei-port", 8080, "TEI internal port")
 	teiBinary := flag.String("tei-binary", "text-embeddings-router", "Path to TEI binary")
 	model := flag.String("model", "nomic-ai/nomic-embed-text-v1.5", "Initial model (default: text model for search-heavy workflows)")

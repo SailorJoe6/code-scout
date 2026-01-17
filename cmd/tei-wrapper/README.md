@@ -38,7 +38,7 @@ go build -o tei-wrapper .
 
 # Wrapper will:
 # - Start TEI on port 8080 (internal)
-# - Listen on port 11434 (Ollama-compatible)
+# - Listen on port 11435 (default; avoids Ollama)
 # - Load nomic-ai/CodeRankEmbed by default
 # - Automatically switch models when requested via API
 ```
@@ -59,7 +59,7 @@ go build -o tei-wrapper .
 
 ```
 -port int
-    Port to listen on (default: 11434, Ollama-compatible)
+    Port to listen on (default: 11435; use 11434 if Ollama is not running)
 -tei-port int
     TEI internal port (default: 8080)
 -tei-binary string
@@ -173,10 +173,10 @@ Configure code-scout to use the wrapper instead of Ollama:
 
 ```bash
 # Set environment variable
-export EMBEDDINGS_BASE_URL=http://localhost:11434
+export EMBEDDINGS_BASE_URL=http://localhost:11435
 
 # Or use command line flag
-code-scout index --embeddings-url http://localhost:11434
+code-scout index --embeddings-url http://localhost:11435
 ```
 
 The wrapper is API-compatible with Ollama, so code-scout will work without any code changes!

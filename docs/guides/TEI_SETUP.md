@@ -80,6 +80,8 @@ text-embeddings-router \
 
 **Docker is the recommended method** for NVIDIA GPU systems.
 
+**Note for Linux ARM64 (aarch64):** The official TEI Docker images do not currently publish ARM64 manifests, so `docker pull ghcr.io/huggingface/text-embeddings-inference:latest` will fail with "no matching manifest for linux/arm64". In that case, use the "Build from Source (Advanced)" section below and a CUDA-enabled feature like `candle-cuda-volta`.
+
 #### Requirements
 
 ```bash
@@ -140,7 +142,13 @@ docker run -p 8080:80 \
 
 For developers who need custom builds:
 
+**Linux ARM64 + NVIDIA GPU (tested):** build from source with CUDA and avoid flash-attn if it fails to compile on your GPU/driver. The `candle-cuda-volta` feature uses CUDA without flash-attn and is a good fallback.
+
 ```bash
+# Prereqs (Ubuntu/Debian)
+sudo apt-get update
+sudo apt-get install -y libssl-dev pkg-config
+
 # Install Rust toolchain
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 source $HOME/.cargo/env
@@ -155,7 +163,10 @@ cd text-embeddings-inference
 cargo install --path router -F metal
 
 # Linux/Windows - CUDA support
-cargo install --path router -F cuda
+cargo install --path router -F candle-cuda
+
+# Linux ARM64 + CUDA fallback (no flash-attn)
+cargo install --path router -F candle-cuda-volta
 
 # Any platform - CPU only
 cargo install --path router
@@ -208,7 +219,7 @@ Code Scout needs different embedding models for code vs documentation. There are
 cd cmd/tei-wrapper
 go build -o tei-wrapper .
 
-# Start the wrapper (defaults to port 11434, Ollama-compatible)
+# Start the wrapper (defaults to port 11435 to avoid Ollama conflicts)
 ./tei-wrapper
 ```
 
@@ -216,7 +227,7 @@ go build -o tei-wrapper .
 - Single TEI process with one model loaded at a time
 - Automatically detects model changes and restarts TEI
 - Lower memory usage (~4-8GB for single model vs 8-16GB for dual)
-- Ollama-compatible API on port 11434
+- Ollama-compatible API on port 11435 (configurable)
 
 **Advantages:**
 - ✅ Lower memory usage (single model at a time)
@@ -308,8 +319,8 @@ curl http://localhost:8001/v1/embeddings \
 The wrapper is Ollama-compatible, so Code Scout works automatically:
 
 ```bash
-# The wrapper runs on port 11434 by default (Ollama-compatible)
-# No additional configuration needed!
+# The wrapper runs on port 11435 by default
+# No additional configuration needed (or set --port 11434 if Ollama is stopped)!
 
 # Index your repository
 code-scout index
@@ -467,6 +478,46 @@ uname -m  # Should show "arm64"
 ```
 
 If on Intel Mac, TEI won't work. Use Ollama instead (see OLLAMA_SETUP.md).
+
+### Build fails: OpenSSL headers not found (Linux)
+
+**Symptom:**
+```
+error: failed to run custom build command for `openssl-sys`
+The system library `openssl` required by crate `openssl-sys` was not found.
+```
+
+**Solution (Ubuntu/Debian):**
+```bash
+sudo apt-get update
+sudo apt-get install -y libssl-dev pkg-config
+```
+
+### Build fails: flash-attn/CUTLASS errors (CUDA)
+
+**Symptom:** NVCC errors mentioning `candle-flash-attn`, `cutlass`, or missing `PFN_cuTensorMap*` symbols.
+
+**Solution:** Rebuild with the `candle-cuda-volta` feature to disable flash-attn:
+```bash
+cargo install --path router -F candle-cuda-volta
+```
+
+### Runtime error: compute cap not compatible (CUDA 12.x GPUs)
+
+**Symptom:**
+```
+Could not start backend: Runtime compute cap 121 is not compatible with compile time compute cap 121
+```
+
+**Cause:** Older TEI/Candle versions only whitelist compute caps up to 9.0.
+
+**Solution:** Patch TEI to allow 12.x compute caps, then rebuild:
+```rust
+// backends/candle/src/compute_cap.rs
+// add:
+(120..=129, 120..=129) => true,
+```
+Then rebuild with CUDA (e.g. `candle-cuda-volta`).
 
 ### Model download fails or is slow
 
