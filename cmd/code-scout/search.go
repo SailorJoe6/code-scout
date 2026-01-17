@@ -413,7 +413,13 @@ func buildRerankText(result SearchResult) string {
 		builder.WriteString(result.ParentHeading)
 		builder.WriteString("\n")
 	}
-	builder.WriteString(result.Code)
+
+	// Truncate code to stay under model's 512 token limit (~1200 chars with metadata)
+	code := result.Code
+	if len(code) > 1200 {
+		code = code[:1200] + "..."
+	}
+	builder.WriteString(code)
 	return strings.TrimSpace(builder.String())
 }
 
