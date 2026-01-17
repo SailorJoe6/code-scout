@@ -33,13 +33,13 @@ go build -o tei-wrapper .
 ### Basic Usage (Default Settings)
 
 ```bash
-# Start wrapper with default model (nomic-embed-code)
+# Start wrapper with default model (CodeRankEmbed)
 ./tei-wrapper
 
 # Wrapper will:
 # - Start TEI on port 8080 (internal)
 # - Listen on port 11434 (Ollama-compatible)
-# - Load nomic-ai/nomic-embed-code by default
+# - Load nomic-ai/CodeRankEmbed by default
 # - Automatically switch models when requested via API
 ```
 
@@ -47,11 +47,13 @@ go build -o tei-wrapper .
 
 ```bash
 # Start with code model
-./tei-wrapper --model nomic-ai/nomic-embed-code
+./tei-wrapper --model nomic-ai/CodeRankEmbed
 
 # Start with different port
 ./tei-wrapper --port 8081 --model nomic-ai/CodeRankEmbed
 ```
+
+**Note:** `nomic-ai/nomic-embed-code` is Ollama-only and not currently supported by TEI. Use `nomic-ai/CodeRankEmbed` on TEI.
 
 ### Command Line Options
 
@@ -63,11 +65,13 @@ go build -o tei-wrapper .
 -tei-binary string
     Path to TEI binary (default: "text-embeddings-router")
 -model string
-    Initial model to load (default: "nomic-ai/nomic-embed-code")
+    Initial model to load (default: "nomic-ai/CodeRankEmbed")
 -idle-preload bool
     Enable idle-based preloading of code model (default: false)
 -idle-timeout duration
     Idle time before preloading code model (default: 30s)
+-max-batch-tokens int
+    Maximum batch tokens for TEI (controls memory usage, lower = less RAM) (default: 8192)
 ```
 
 ### Idle Preloading
@@ -137,7 +141,7 @@ Health check endpoint with current model information.
 ```json
 {
   "status": "ok",
-  "model": "nomic-ai/nomic-embed-code"
+  "model": "nomic-ai/CodeRankEmbed"
 }
 ```
 
@@ -145,7 +149,7 @@ Health check endpoint with current model information.
 ```json
 {
   "status": "switching",
-  "model": "nomic-ai/nomic-embed-code",
+  "model": "nomic-ai/CodeRankEmbed",
   "switching": true
 }
 ```
@@ -154,7 +158,7 @@ Health check endpoint with current model information.
 ```json
 {
   "status": "unhealthy",
-  "model": "nomic-ai/nomic-embed-code",
+  "model": "nomic-ai/CodeRankEmbed",
   "error": "TEI is not responding"
 }
 ```
@@ -214,10 +218,32 @@ Check that:
 
 ### "Out of memory" errors
 
-The nomic-embed-code 7B model requires ~8GB RAM. Try:
-1. Use the smaller CodeRankEmbed model instead
-2. Reduce batch size in code-scout
-3. Close other applications
+Large models like nomic-embed-code 7B require a powerful GPU and lots of RAM in Ollama, and are not supported by TEI. Try:
+1. Use the smaller CodeRankEmbed model (default for TEI)
+2. Lower the `--max-batch-tokens` value (e.g., 4096 or 2048)
+3. Reduce batch size in code-scout (`--batch-size 2`)
+4. Close other applications
+
+### Memory Usage Tuning
+
+The `--max-batch-tokens` parameter controls TEI's memory allocation:
+
+- **Default (8192)**: Balanced for single-query searches (4-8GB RAM)
+- **Higher (16384-32768)**: Better for batch indexing but uses more RAM (12-26GB)
+- **Lower (2048-4096)**: Minimal memory usage for constrained environments (2-4GB)
+
+Memory scales quadratically with batch tokens. If you experience excessive memory usage during searches, reduce `--max-batch-tokens`:
+
+```bash
+# Low memory mode (2-4GB RAM)
+./tei-wrapper --max-batch-tokens 2048
+
+# Balanced mode (4-8GB RAM, default)
+./tei-wrapper --max-batch-tokens 8192
+
+# High throughput mode (12-16GB RAM, for batch indexing)
+./tei-wrapper --max-batch-tokens 16384
+```
 
 ## License
 

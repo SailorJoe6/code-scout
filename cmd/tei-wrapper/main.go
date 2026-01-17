@@ -68,6 +68,9 @@ type Server struct {
 	lastRequestTime time.Time     // Last request timestamp
 	preferredModel  string        // Model to preload when idle (code model)
 	idleTimer       *time.Timer   // Timer for idle detection
+
+	// Memory management
+	maxBatchTokens int           // Max batch tokens for TEI (controls memory usage)
 }
 
 func main() {
@@ -75,9 +78,10 @@ func main() {
 	port := flag.Int("port", 11434, "Port to listen on (Ollama-compatible default)")
 	teiPort := flag.Int("tei-port", 8080, "TEI internal port")
 	teiBinary := flag.String("tei-binary", "text-embeddings-router", "Path to TEI binary")
-	model := flag.String("model", "nomic-ai/nomic-embed-code", "Initial model (default: code model for faster subsequent runs)")
+	model := flag.String("model", "nomic-ai/CodeRankEmbed", "Initial model (default: code model for faster subsequent runs)")
 	idlePreload := flag.Bool("idle-preload", false, "Enable idle-based preloading of code model")
 	idleTimeout := flag.Duration("idle-timeout", 30*time.Second, "Idle time before preloading code model")
+	maxBatchTokens := flag.Int("max-batch-tokens", 8192, "Maximum batch tokens for TEI (controls memory usage, lower = less RAM)")
 	flag.Parse()
 
 	// Create server
@@ -92,7 +96,8 @@ func main() {
 		},
 		idlePreload:    *idlePreload,
 		idleTimeout:    *idleTimeout,
-		preferredModel: "nomic-ai/nomic-embed-code", // Always prefer code model when idle
+		preferredModel: "nomic-ai/CodeRankEmbed", // Always prefer code model when idle
+		maxBatchTokens: *maxBatchTokens,
 	}
 
 	// Start TEI process
@@ -145,7 +150,7 @@ func (s *Server) startTEIWithModel(ctx context.Context, model string) error {
 	s.teiCmd = exec.CommandContext(ctx, s.teiBinary,
 		"--model-id", model,
 		"--port", fmt.Sprintf("%d", s.teiPort),
-		"--max-batch-tokens", "32768", // Reasonable default
+		"--max-batch-tokens", fmt.Sprintf("%d", s.maxBatchTokens),
 	)
 
 	// Capture output for debugging

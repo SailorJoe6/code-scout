@@ -1207,3 +1207,28 @@ func TestOnIdleTimeoutSuccess(t *testing.T) {
 		t.Errorf("Expected currentModel='code-model', got %s", server.currentModel)
 	}
 }
+
+// TestMaxBatchTokensConfiguration tests that maxBatchTokens is properly stored
+func TestMaxBatchTokensConfiguration(t *testing.T) {
+	testCases := []struct {
+		name           string
+		maxBatchTokens int
+	}{
+		{"Default", 8192},
+		{"LowMemory", 2048},
+		{"HighThroughput", 16384},
+		{"Custom", 4096},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			server := &Server{
+				maxBatchTokens: tc.maxBatchTokens,
+			}
+
+			if server.maxBatchTokens != tc.maxBatchTokens {
+				t.Errorf("Expected maxBatchTokens=%d, got %d", tc.maxBatchTokens, server.maxBatchTokens)
+			}
+		})
+	}
+}

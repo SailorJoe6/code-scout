@@ -9,7 +9,7 @@ The TEI wrapper solves a key problem with using TEI for Code Scout's two-pass em
 ### The Problem
 
 Code Scout uses two different embedding models:
-- **Code model** (nomic-ai/nomic-embed-code) - For code files
+- **Code model** (nomic-ai/CodeRankEmbed) - For code files
 - **Text model** (nomic-ai/nomic-embed-text-v1.5) - For documentation
 
 **Option 1: Run two TEI instances**
@@ -95,7 +95,7 @@ Start the wrapper with default settings:
 **Default configuration:**
 - Listen port: `11434` (Ollama-compatible)
 - TEI internal port: `8080`
-- Initial model: `nomic-ai/nomic-embed-code`
+- Initial model: `nomic-ai/CodeRankEmbed`
 - Idle preload: Disabled
 
 ### Command Line Options
@@ -111,9 +111,10 @@ Start the wrapper with default settings:
 | `--port` | int | `11434` | Wrapper listen port (Ollama-compatible) |
 | `--tei-port` | int | `8080` | TEI internal port |
 | `--tei-binary` | string | `text-embeddings-router` | Path to TEI binary |
-| `--model` | string | `nomic-ai/nomic-embed-code` | Initial model to load |
+| `--model` | string | `nomic-ai/CodeRankEmbed` | Initial model to load |
 | `--idle-preload` | bool | `false` | Enable idle-based model preloading |
 | `--idle-timeout` | duration | `30s` | Idle time before preloading preferred model |
+| `--max-batch-tokens` | int | `8192` | Maximum batch tokens (controls memory usage, lower = less RAM) |
 
 ### Example Configurations
 
@@ -146,7 +147,7 @@ The wrapper supports optional idle-based preloading to minimize model switching 
 
 1. After each request, the wrapper starts an idle timer
 2. If no requests arrive within the timeout period (default: 30s), the wrapper detects idle state
-3. The wrapper automatically switches to the **preferred model** (always `nomic-ai/nomic-embed-code`)
+3. The wrapper automatically switches to the **preferred model** (always `nomic-ai/CodeRankEmbed`)
 4. Next indexing run starts immediately with the code model already loaded
 
 ### When to Use Idle Preload
@@ -231,7 +232,7 @@ Health check endpoint with current model information.
 ```json
 {
   "status": "ok",
-  "model": "nomic-ai/nomic-embed-code"
+  "model": "nomic-ai/CodeRankEmbed"
 }
 ```
 
@@ -239,7 +240,7 @@ Health check endpoint with current model information.
 ```json
 {
   "status": "switching",
-  "model": "nomic-ai/nomic-embed-code",
+  "model": "nomic-ai/CodeRankEmbed",
   "switching": true
 }
 ```
@@ -248,7 +249,7 @@ Health check endpoint with current model information.
 ```json
 {
   "status": "unhealthy",
-  "model": "nomic-ai/nomic-embed-code",
+  "model": "nomic-ai/CodeRankEmbed",
   "error": "TEI is not responding"
 }
 ```
@@ -286,7 +287,7 @@ Create `.code-scout.json` in your repo:
 ```json
 {
   "endpoint": "http://localhost:11434",
-  "code_model": "nomic-ai/nomic-embed-code",
+  "code_model": "nomic-ai/CodeRankEmbed",
   "text_model": "nomic-ai/nomic-embed-text-v1.5"
 }
 ```
@@ -297,15 +298,16 @@ Any TEI-compatible embedding model works. Recommended models:
 
 ### For Code Embeddings
 
-**nomic-ai/nomic-embed-code** (7B params, 26GB)
-- Best accuracy for code
-- Requires 8-10GB RAM
-- Optimized for: Python, Java, Ruby, PHP, JavaScript, Go
-
 **nomic-ai/CodeRankEmbed** (137M params, 521MB)
-- Good accuracy, much smaller
+- Default code model (fast, compact)
 - Requires 1-2GB RAM
 - Best for memory-constrained systems
+
+**nomic-ai/nomic-embed-code** (7B params, 26GB)
+- Higher accuracy for code (large model)
+- Requires a powerful GPU and lots of RAM in Ollama
+- Not currently supported by TEI (use CodeRankEmbed instead)
+- Optimized for: Python, Java, Ruby, PHP, JavaScript, Go
 
 ### For Documentation Embeddings
 
@@ -432,23 +434,39 @@ which text-embeddings-router
 2. Port 8080 is available: `lsof -i :8080`
 3. Model ID is valid (check [Hugging Face](https://huggingface.co/models))
 4. Sufficient RAM available
+5. `nomic-ai/nomic-embed-code` is Ollama-only and will not load in TEI
 
 **Check TEI manually:**
 ```bash
 text-embeddings-router \
-  --model-id nomic-ai/nomic-embed-code \
+  --model-id nomic-ai/CodeRankEmbed \
   --port 8080
 ```
 
 ### "Out of memory" errors
 
-**Problem:** Not enough RAM for model
+**Problem:** Not enough RAM for model or excessive memory usage during searches
 
 **Solution:**
-1. Use smaller model: `--model nomic-ai/CodeRankEmbed`
-2. Reduce batch size in code-scout: `--batch-size 4`
-3. Close other applications
-4. Check system RAM: `free -h` (Linux) or Activity Monitor (macOS)
+1. **Lower `--max-batch-tokens`** (most effective): `--max-batch-tokens 4096` or `2048`
+2. Use smaller model: `--model nomic-ai/CodeRankEmbed`
+3. Reduce batch size in code-scout: `--batch-size 4`
+4. Close other applications
+5. Check system RAM: `free -h` (Linux) or Activity Monitor (macOS)
+
+**Memory tuning examples:**
+```bash
+# Low memory mode (2-4GB RAM)
+./tei-wrapper --max-batch-tokens 2048
+
+# Balanced mode (4-8GB RAM, default)
+./tei-wrapper --max-batch-tokens 8192
+
+# High throughput mode (12-16GB RAM)
+./tei-wrapper --max-batch-tokens 16384
+```
+
+Memory usage scales quadratically with `--max-batch-tokens`. The default (8192) is optimized for single-query searches. If you see 20+ GB memory usage during searches, reduce to 4096 or 2048.
 
 ### Model switching is slow
 
@@ -457,7 +475,7 @@ text-embeddings-router \
 **Likely causes:**
 - Slow disk I/O (model cache reading)
 - CPU-only mode (no GPU acceleration)
-- Large model (nomic-embed-code 7B vs CodeRankEmbed 137M)
+- Large model (nomic-embed-code 7B vs CodeRankEmbed 137M; nomic-embed-code is Ollama-only)
 
 **Solutions:**
 1. Enable idle preload: `--idle-preload`
