@@ -78,9 +78,9 @@ func main() {
 	port := flag.Int("port", 11434, "Port to listen on (Ollama-compatible default)")
 	teiPort := flag.Int("tei-port", 8080, "TEI internal port")
 	teiBinary := flag.String("tei-binary", "text-embeddings-router", "Path to TEI binary")
-	model := flag.String("model", "nomic-ai/CodeRankEmbed", "Initial model (default: code model for faster subsequent runs)")
-	idlePreload := flag.Bool("idle-preload", false, "Enable idle-based preloading of code model")
-	idleTimeout := flag.Duration("idle-timeout", 30*time.Second, "Idle time before preloading code model")
+	model := flag.String("model", "nomic-ai/nomic-embed-text-v1.5", "Initial model (default: text model for search-heavy workflows)")
+	idlePreload := flag.Bool("idle-preload", false, "Enable idle-based preloading of text model")
+	idleTimeout := flag.Duration("idle-timeout", 30*time.Second, "Idle time before preloading text model")
 	maxBatchTokens := flag.Int("max-batch-tokens", 8192, "Maximum batch tokens for TEI (controls memory usage, lower = less RAM)")
 	flag.Parse()
 
@@ -96,7 +96,7 @@ func main() {
 		},
 		idlePreload:    *idlePreload,
 		idleTimeout:    *idleTimeout,
-		preferredModel: "nomic-ai/CodeRankEmbed", // Always prefer code model when idle
+		preferredModel: "nomic-ai/nomic-embed-text-v1.5", // Always prefer text model when idle (for search-heavy workflows)
 		maxBatchTokens: *maxBatchTokens,
 	}
 

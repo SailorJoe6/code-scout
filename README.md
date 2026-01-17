@@ -104,21 +104,23 @@ Code Scout uses custom-configured Ollama models with persistent context window s
 
 ### Supported Models
 
-Code Scout uses two embedding models optimized for different purposes:
+Code Scout uses two embedding models optimized for different purposes. Default model IDs for TEI (wrapper or any HuggingFace-backed endpoint):
 
-**nomic-embed-text** (8K context)
-- General-purpose text and code embedding
-- Excellent for mixed content (code + documentation)
+**nomic-ai/CodeRankEmbed** (8K context)
+- Code-optimized embeddings
 - Context window: 8,192 tokens (~500-600 lines of code)
-- Best for: Documentation, comments, shorter code files
+- Best for: Code files, larger modules
 
-**nomic-embed-code** (32K context)
-- Specialized code embedding model
-- Optimized for Python, Java, Ruby, PHP, JavaScript, Go
-- Context window: 32,768 tokens (~2,000-2,500 lines of code)
-- Best for: Large code files, entire modules, complex classes
+**nomic-ai/nomic-embed-text-v1.5** (2K context)
+- General-purpose text embeddings
+- Context window: 2,048 tokens
+- Best for: Documentation, comments, shorter text files
 
-### Setting Up Custom Models
+Note: `nomic-embed-code` is a large Ollama model with higher accuracy but requires a powerful GPU and lots of RAM, and it is not currently supported by TEI. For TEI or lower-power machines, `nomic-ai/CodeRankEmbed` is the preferred code model.
+
+If you're using Ollama, the custom Modelfiles below create `code-scout-code` and `code-scout-text` with larger context windows.
+
+### Setting Up Custom Models (Ollama)
 
 The `ollama-models/` directory contains Modelfiles with pre-configured context windows.
 
@@ -139,7 +141,7 @@ brew services start ollama
 # Pull nomic-embed-text
 ollama pull nomic-embed-text
 
-# Pull nomic-embed-code
+# Pull nomic-embed-code (large; requires a powerful GPU and lots of RAM)
 ollama pull manutic/nomic-embed-code
 ```
 
@@ -181,10 +183,12 @@ response = ollama.embeddings(
 
 | File Type | Recommended Model | Reason |
 |-----------|------------------|---------|
-| `.md`, `.txt`, `.rst` | `code-scout-text` | General text content |
-| `.py`, `.js`, `.java`, `.go`, `.rb`, `.php` | `code-scout-code` | Code-optimized embeddings |
-| Mixed code+docs | `code-scout-text` | Balanced for both |
-| Large files (>500 lines) | `code-scout-code` | 32K context handles large files |
+| `.md`, `.txt`, `.rst` | `nomic-ai/nomic-embed-text-v1.5` | General text content |
+| `.py`, `.js`, `.java`, `.go`, `.rb`, `.php` | `nomic-ai/CodeRankEmbed` | Code-optimized embeddings |
+| Mixed code+docs | `nomic-ai/nomic-embed-text-v1.5` | Balanced for both |
+| Large files (>500 lines) | `nomic-ai/CodeRankEmbed` | 8K context handles larger files |
+
+Ollama users: replace with `code-scout-text` and `code-scout-code` if you created the custom models.
 
 ## Use Cases
 
@@ -225,10 +229,11 @@ Create a JSON file with the following structure:
 {
   "endpoint": "http://localhost:11434",
   "api_key": "",
-  "code_model": "code-scout-code",
-  "text_model": "code-scout-text",
+  "code_model": "nomic-ai/CodeRankEmbed",
+  "text_model": "nomic-ai/nomic-embed-text-v1.5",
   "rerank_model": "",
-  "rerank_top_k": 0
+  "rerank_top_k": 0,
+  "single_model_mode": true
 }
 ```
 
@@ -239,10 +244,25 @@ Create a JSON file with the following structure:
 - `text_model`: Model name to use for documentation embeddings
 - `rerank_model`: (Optional) Model name to use for reranking top results
 - `rerank_top_k`: (Optional) Number of top results to rerank (defaults to search `--limit` when `rerank_model` is set)
+- `single_model_mode`: (Optional, default: `true`) Use single TEI process with model switching. Set to `false` for multi-model mode (runs separate TEI processes for each model simultaneously, higher memory but faster)
+
+Defaults target the TEI wrapper (CodeRankEmbed + nomic-embed-text-v1.5). If you use Ollama, set `code_model` and `text_model` to your local model names (for example, `code-scout-code` / `code-scout-text`).
 
 ### Example Configurations
 
-**Default (Ollama Local)**:
+**Default (TEI Wrapper Local - Single Model Mode)**:
+```json
+{
+  "endpoint": "http://localhost:11434",
+  "code_model": "nomic-ai/CodeRankEmbed",
+  "text_model": "nomic-ai/nomic-embed-text-v1.5",
+  "rerank_model": "",
+  "rerank_top_k": 0,
+  "single_model_mode": true
+}
+```
+
+**Ollama Local (Custom Models)**:
 ```json
 {
   "endpoint": "http://localhost:11434",
@@ -265,16 +285,17 @@ Create a JSON file with the following structure:
 }
 ```
 
-**Remote Ollama Server**:
+**Remote TEI Wrapper (GPU Server)**:
 ```json
 {
   "endpoint": "http://my-gpu-server:11434",
-  "code_model": "code-scout-code",
-  "text_model": "code-scout-text",
-  "rerank_model": "code-scout-text",
+  "code_model": "nomic-ai/nomic-embed-code",
+  "text_model": "nomic-ai/nomic-embed-text-v1.5",
+  "rerank_model": "nomic-ai/nomic-embed-text-v1.5",
   "rerank_top_k": 25
 }
 ```
+Note: `nomic-ai/nomic-embed-code` requires a powerful GPU and lots of RAM and is Ollama-only today. If your remote server runs TEI, use `nomic-ai/CodeRankEmbed` instead.
 
 ### CLI Flag Override
 
@@ -294,13 +315,13 @@ code-scout search "authentication" --endpoint https://api.example.com
 # Create user-level config directory
 mkdir -p ~/.code-scout
 
-# Create default configuration (local Ollama, no API key needed)
+# Create default configuration (local TEI wrapper, no API key needed)
 cat > ~/.code-scout/config.json << 'EOF'
 {
   "endpoint": "http://localhost:11434",
-  "code_model": "code-scout-code",
-  "text_model": "code-scout-text",
-  "rerank_model": "code-scout-text",
+  "code_model": "nomic-ai/CodeRankEmbed",
+  "text_model": "nomic-ai/nomic-embed-text-v1.5",
+  "rerank_model": "nomic-ai/nomic-embed-text-v1.5",
   "rerank_top_k": 25
 }
 EOF
@@ -350,15 +371,16 @@ TEI provides the fastest embedding generation with full GPU acceleration on all 
 
 | Platform | Acceleration | Speed | Installation |
 |----------|-------------|-------|--------------|
-| **Mac (Apple Silicon)** | Metal | Very Fast | `brew install huggingface/tap/text-embeddings-inference` |
+| **Mac (Apple Silicon)** | Metal | Very Fast | `brew install text-embeddings-inference` |
 | **Linux/Windows + NVIDIA** | CUDA | Blazing Fast | Docker with `--gpus all` |
 | **CPU-only** | None | Moderate | Docker CPU image |
 
 **Quick start:**
 
 ```bash
-# 1. Install TEI (see platform-specific instructions in TEI_SETUP.md)
-brew install huggingface/tap/text-embeddings-inference  # macOS
+# 1. Install TEI (see TEI_SETUP.md for platform-specific instructions)
+# macOS:
+brew install text-embeddings-inference
 
 # 2. Build and start TEI wrapper (handles model switching)
 cd cmd/tei-wrapper

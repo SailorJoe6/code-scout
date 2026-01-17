@@ -147,15 +147,17 @@ The wrapper supports optional idle-based preloading to minimize model switching 
 
 1. After each request, the wrapper starts an idle timer
 2. If no requests arrive within the timeout period (default: 30s), the wrapper detects idle state
-3. The wrapper automatically switches to the **preferred model** (always `nomic-ai/CodeRankEmbed`)
-4. Next indexing run starts immediately with the code model already loaded
+3. The wrapper automatically switches to the **preferred model** (always `nomic-ai/nomic-embed-text-v1.5`)
+4. Next search run starts immediately with the text model already loaded
+
+**Note:** The wrapper now defaults to the text model (for search-heavy workflows in single-model mode). During indexing, it switches to `nomic-ai/CodeRankEmbed` only when needed.
 
 ### When to Use Idle Preload
 
 **✅ Enable when:**
-- Development workflows with periodic indexing (edit → index → repeat)
-- You index code more frequently than documentation
-- You want faster startup for subsequent runs
+- Development workflows with periodic searching (search → code → search → repeat)
+- You search more frequently than you index
+- You want faster search startup
 
 **❌ Disable when:**
 - Production environments with constant traffic (never idle)

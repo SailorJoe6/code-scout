@@ -11,21 +11,25 @@ import (
 
 // Config holds the application configuration
 type Config struct {
-	Endpoint    string `json:"endpoint"`
-	APIKey      string `json:"api_key,omitempty"` // Optional API key for authentication
-	CodeModel   string `json:"code_model"`
-	TextModel   string `json:"text_model"`
-	RerankModel string `json:"rerank_model,omitempty"`
-	RerankTopK  int    `json:"rerank_top_k,omitempty"`
+	Endpoint        string `json:"endpoint"`
+	APIKey          string `json:"api_key,omitempty"`           // Optional API key for authentication
+	CodeModel       string `json:"code_model"`
+	TextModel       string `json:"text_model"`
+	RerankModel     string `json:"rerank_model,omitempty"`
+	RerankTopK      int    `json:"rerank_top_k,omitempty"`
+	SingleModelMode *bool  `json:"single_model_mode,omitempty"` // Use single TEI process with model switching (default: true)
 }
 
 // Default returns the default configuration
 func Default() *Config {
-	return &Config{
-		Endpoint:  "http://localhost:11434",
-		CodeModel: "code-scout-code",
-		TextModel: "code-scout-text",
+	singleModelMode := true
+	cfg := &Config{
+		Endpoint:        "http://localhost:11434",
+		CodeModel:       "nomic-ai/CodeRankEmbed",
+		TextModel:       "nomic-ai/nomic-embed-text-v1.5",
+		SingleModelMode: &singleModelMode, // Default to single-model mode (TEI wrapper with model switching)
 	}
+	return cfg
 }
 
 // Load loads configuration from file paths in order of precedence:
@@ -101,6 +105,10 @@ func mergeConfig(dst, src *Config) {
 	}
 	if src.RerankTopK != 0 {
 		dst.RerankTopK = src.RerankTopK
+	}
+	// Merge SingleModelMode if explicitly set (non-nil)
+	if src.SingleModelMode != nil {
+		dst.SingleModelMode = src.SingleModelMode
 	}
 }
 

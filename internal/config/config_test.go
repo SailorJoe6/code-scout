@@ -12,17 +12,22 @@ func TestDefault(t *testing.T) {
 	if cfg.Endpoint != "http://localhost:11434" {
 		t.Errorf("expected default endpoint http://localhost:11434, got %s", cfg.Endpoint)
 	}
-	if cfg.CodeModel != "code-scout-code" {
-		t.Errorf("expected default code model code-scout-code, got %s", cfg.CodeModel)
+	if cfg.CodeModel != "nomic-ai/CodeRankEmbed" {
+		t.Errorf("expected default code model nomic-ai/CodeRankEmbed, got %s", cfg.CodeModel)
 	}
-	if cfg.TextModel != "code-scout-text" {
-		t.Errorf("expected default text model code-scout-text, got %s", cfg.TextModel)
+	if cfg.TextModel != "nomic-ai/nomic-embed-text-v1.5" {
+		t.Errorf("expected default text model nomic-ai/nomic-embed-text-v1.5, got %s", cfg.TextModel)
 	}
 	if cfg.RerankModel != "" {
 		t.Errorf("expected default rerank model to be empty, got %s", cfg.RerankModel)
 	}
 	if cfg.RerankTopK != 0 {
 		t.Errorf("expected default rerank_top_k to be 0, got %d", cfg.RerankTopK)
+	}
+	if cfg.SingleModelMode == nil {
+		t.Errorf("expected default single_model_mode to be set, got nil")
+	} else if *cfg.SingleModelMode != true {
+		t.Errorf("expected default single_model_mode to be true, got %v", *cfg.SingleModelMode)
 	}
 }
 
@@ -91,10 +96,10 @@ func TestMergeConfig(t *testing.T) {
 		t.Errorf("expected merged endpoint http://custom:8080, got %s", dst.Endpoint)
 	}
 	// Should keep defaults for empty fields
-	if dst.CodeModel != "code-scout-code" {
+	if dst.CodeModel != "nomic-ai/CodeRankEmbed" {
 		t.Errorf("expected default code model, got %s", dst.CodeModel)
 	}
-	if dst.TextModel != "code-scout-text" {
+	if dst.TextModel != "nomic-ai/nomic-embed-text-v1.5" {
 		t.Errorf("expected default text model, got %s", dst.TextModel)
 	}
 	if dst.RerankModel != "custom-rerank" {
@@ -292,10 +297,10 @@ func TestLoad_NoConfigFiles(t *testing.T) {
 	if cfg.Endpoint != "http://localhost:11434" {
 		t.Errorf("expected default endpoint, got %s", cfg.Endpoint)
 	}
-	if cfg.CodeModel != "code-scout-code" {
+	if cfg.CodeModel != "nomic-ai/CodeRankEmbed" {
 		t.Errorf("expected default code model, got %s", cfg.CodeModel)
 	}
-	if cfg.TextModel != "code-scout-text" {
+	if cfg.TextModel != "nomic-ai/nomic-embed-text-v1.5" {
 		t.Errorf("expected default text model, got %s", cfg.TextModel)
 	}
 }
@@ -532,8 +537,8 @@ func TestMergeConfig_EmptyAPIKey(t *testing.T) {
 	dst := &Config{
 		Endpoint:  "http://localhost:11434",
 		APIKey:    "existing-key",
-		CodeModel: "code-scout-code",
-		TextModel: "code-scout-text",
+		CodeModel: "nomic-ai/CodeRankEmbed",
+		TextModel: "nomic-ai/nomic-embed-text-v1.5",
 	}
 
 	src := &Config{
@@ -557,8 +562,8 @@ func TestMergeConfig_ZeroRerankTopK(t *testing.T) {
 	// Test that zero RerankTopK in source doesn't override non-zero value in destination
 	dst := &Config{
 		Endpoint:    "http://localhost:11434",
-		CodeModel:   "code-scout-code",
-		TextModel:   "code-scout-text",
+		CodeModel:   "nomic-ai/CodeRankEmbed",
+		TextModel:   "nomic-ai/nomic-embed-text-v1.5",
 		RerankModel: "rerank",
 		RerankTopK:  25,
 	}
@@ -632,5 +637,178 @@ func TestValidate_InvalidURL(t *testing.T) {
 	err := cfg.Validate()
 	if err == nil {
 		t.Errorf("expected error for invalid URL, got nil")
+	}
+}
+
+func TestSingleModelMode_LoadFromFile(t *testing.T) {
+	tempDir := t.TempDir()
+
+	tests := []struct {
+		name           string
+		configJSON     string
+		expectedValue  *bool
+		expectedNil    bool
+	}{
+		{
+			name: "explicit true",
+			configJSON: `{
+  "endpoint": "http://localhost:11434",
+  "code_model": "model1",
+  "text_model": "model2",
+  "single_model_mode": true
+}`,
+			expectedValue: func() *bool { v := true; return &v }(),
+			expectedNil:   false,
+		},
+		{
+			name: "explicit false",
+			configJSON: `{
+  "endpoint": "http://localhost:11434",
+  "code_model": "model1",
+  "text_model": "model2",
+  "single_model_mode": false
+}`,
+			expectedValue: func() *bool { v := false; return &v }(),
+			expectedNil:   false,
+		},
+		{
+			name: "not specified",
+			configJSON: `{
+  "endpoint": "http://localhost:11434",
+  "code_model": "model1",
+  "text_model": "model2"
+}`,
+			expectedValue: nil,
+			expectedNil:   true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			configPath := filepath.Join(tempDir, tt.name+".json")
+			if err := os.WriteFile(configPath, []byte(tt.configJSON), 0644); err != nil {
+				t.Fatalf("failed to write config: %v", err)
+			}
+
+			cfg, err := loadFromFile(configPath)
+			if err != nil {
+				t.Fatalf("failed to load config: %v", err)
+			}
+
+			if tt.expectedNil {
+				if cfg.SingleModelMode != nil {
+					t.Errorf("expected SingleModelMode to be nil, got %v", *cfg.SingleModelMode)
+				}
+			} else {
+				if cfg.SingleModelMode == nil {
+					t.Errorf("expected SingleModelMode to be non-nil")
+				} else if *cfg.SingleModelMode != *tt.expectedValue {
+					t.Errorf("expected SingleModelMode %v, got %v", *tt.expectedValue, *cfg.SingleModelMode)
+				}
+			}
+		})
+	}
+}
+
+func TestSingleModelMode_MergeConfig(t *testing.T) {
+	tests := []struct {
+		name           string
+		dstValue       *bool
+		srcValue       *bool
+		expectedValue  *bool
+	}{
+		{
+			name:          "src true overrides dst nil",
+			dstValue:      nil,
+			srcValue:      func() *bool { v := true; return &v }(),
+			expectedValue: func() *bool { v := true; return &v }(),
+		},
+		{
+			name:          "src false overrides dst nil",
+			dstValue:      nil,
+			srcValue:      func() *bool { v := false; return &v }(),
+			expectedValue: func() *bool { v := false; return &v }(),
+		},
+		{
+			name:          "src false overrides dst true",
+			dstValue:      func() *bool { v := true; return &v }(),
+			srcValue:      func() *bool { v := false; return &v }(),
+			expectedValue: func() *bool { v := false; return &v }(),
+		},
+		{
+			name:          "src true overrides dst false",
+			dstValue:      func() *bool { v := false; return &v }(),
+			srcValue:      func() *bool { v := true; return &v }(),
+			expectedValue: func() *bool { v := true; return &v }(),
+		},
+		{
+			name:          "src nil keeps dst true",
+			dstValue:      func() *bool { v := true; return &v }(),
+			srcValue:      nil,
+			expectedValue: func() *bool { v := true; return &v }(),
+		},
+		{
+			name:          "src nil keeps dst false",
+			dstValue:      func() *bool { v := false; return &v }(),
+			srcValue:      nil,
+			expectedValue: func() *bool { v := false; return &v }(),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dst := &Config{
+				Endpoint:        "http://localhost:11434",
+				CodeModel:       "model1",
+				TextModel:       "model2",
+				SingleModelMode: tt.dstValue,
+			}
+
+			src := &Config{
+				SingleModelMode: tt.srcValue,
+			}
+
+			mergeConfig(dst, src)
+
+			if tt.expectedValue == nil {
+				if dst.SingleModelMode != nil {
+					t.Errorf("expected SingleModelMode to be nil, got %v", *dst.SingleModelMode)
+				}
+			} else {
+				if dst.SingleModelMode == nil {
+					t.Errorf("expected SingleModelMode to be non-nil")
+				} else if *dst.SingleModelMode != *tt.expectedValue {
+					t.Errorf("expected SingleModelMode %v, got %v", *tt.expectedValue, *dst.SingleModelMode)
+				}
+			}
+		})
+	}
+}
+
+func TestSingleModelMode_SaveAndLoad(t *testing.T) {
+	tempDir := t.TempDir()
+	configPath := filepath.Join(tempDir, "config.json")
+
+	singleModelMode := false
+	cfg := &Config{
+		Endpoint:        "http://test:9000",
+		CodeModel:       "test-code",
+		TextModel:       "test-text",
+		SingleModelMode: &singleModelMode,
+	}
+
+	if err := cfg.Save(configPath); err != nil {
+		t.Fatalf("failed to save config: %v", err)
+	}
+
+	loaded, err := loadFromFile(configPath)
+	if err != nil {
+		t.Fatalf("failed to load saved config: %v", err)
+	}
+
+	if loaded.SingleModelMode == nil {
+		t.Errorf("expected SingleModelMode to be set, got nil")
+	} else if *loaded.SingleModelMode != false {
+		t.Errorf("expected SingleModelMode to be false, got %v", *loaded.SingleModelMode)
 	}
 }
