@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"time"
 )
@@ -13,9 +14,13 @@ const (
 	// DefaultEndpoint is the default embedding API endpoint (Ollama local)
 	DefaultEndpoint = "http://localhost:11434"
 	// DefaultCodeModel is the default model for code embeddings
-	DefaultCodeModel = "code-scout-code"
+	DefaultCodeModel = "nomic-ai/CodeRankEmbed"
 	// DefaultTextModel is the default model for text/documentation embeddings
-	DefaultTextModel = "code-scout-text"
+	DefaultTextModel = "nomic-ai/nomic-embed-text-v1.5"
+	// MaxTokens is the maximum token limit for embedding models (8192 tokens ≈ 19000 chars)
+	MaxTokens = 8192
+	// MaxChars is the approximate character limit to stay under MaxTokens (conservative estimate)
+	MaxChars = 19000
 )
 
 // Client is the interface for embedding clients
@@ -98,6 +103,17 @@ func NewOllamaClientWithEndpoint(endpoint, model string) *OpenAIClient {
 	return NewClientWithEndpoint(endpoint, model)
 }
 
+// truncateText truncates text to fit within the token limit
+// Returns the truncated text and whether truncation occurred
+func truncateText(text string) (string, bool) {
+	if len(text) <= MaxChars {
+		return text, false
+	}
+	truncated := text[:MaxChars]
+	log.Printf("Warning: Text truncated from %d to %d chars to fit %d token limit", len(text), MaxChars, MaxTokens)
+	return truncated, true
+}
+
 // Embed generates an embedding for the given text using OpenAI-compatible API with retry logic
 func (c *OpenAIClient) Embed(text string) ([]float64, error) {
 	embeddings, err := c.EmbedMany([]string{text})
@@ -150,9 +166,19 @@ func (c *OpenAIClient) embedWithRetry(texts []string, expected int) ([][]float64
 
 // embedOnce makes a single embedding request without retries
 func (c *OpenAIClient) embedOnce(texts []string) ([][]float64, error) {
+	// Truncate texts that exceed token limit
+	truncatedTexts := make([]string, len(texts))
+	for i, text := range texts {
+		truncated, wasTruncated := truncateText(text)
+		truncatedTexts[i] = truncated
+		if wasTruncated {
+			log.Printf("Warning: Input text %d exceeded token limit and was truncated", i)
+		}
+	}
+
 	reqBody := openAIEmbedRequest{
 		Model: c.model,
-		Input: texts,
+		Input: truncatedTexts,
 	}
 
 	jsonData, err := json.Marshal(reqBody)

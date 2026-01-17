@@ -514,3 +514,182 @@ func BenchmarkEmbedMany(b *testing.B) {
 		}
 	}
 }
+
+// TestTruncateText tests the truncation helper function
+func TestTruncateText(t *testing.T) {
+	t.Run("no truncation needed", func(t *testing.T) {
+		text := "short text"
+		truncated, wasTruncated := truncateText(text)
+		if wasTruncated {
+			t.Error("Expected no truncation for short text")
+		}
+		if truncated != text {
+			t.Errorf("Expected text to remain unchanged, got %s", truncated)
+		}
+	})
+
+	t.Run("exactly at limit", func(t *testing.T) {
+		text := strings.Repeat("a", MaxChars)
+		truncated, wasTruncated := truncateText(text)
+		if wasTruncated {
+			t.Error("Expected no truncation for text exactly at limit")
+		}
+		if len(truncated) != MaxChars {
+			t.Errorf("Expected length %d, got %d", MaxChars, len(truncated))
+		}
+	})
+
+	t.Run("truncation required", func(t *testing.T) {
+		text := strings.Repeat("a", MaxChars+1000)
+		truncated, wasTruncated := truncateText(text)
+		if !wasTruncated {
+			t.Error("Expected truncation for oversized text")
+		}
+		if len(truncated) != MaxChars {
+			t.Errorf("Expected truncated length %d, got %d", MaxChars, len(truncated))
+		}
+	})
+
+	t.Run("very large text", func(t *testing.T) {
+		// Simulate a large documentation chunk (30K chars, ~12K tokens)
+		text := strings.Repeat("Lorem ipsum dolor sit amet, consectetur adipiscing elit. ", 500)
+		if len(text) <= MaxChars {
+			t.Fatalf("Test text should be larger than MaxChars")
+		}
+		truncated, wasTruncated := truncateText(text)
+		if !wasTruncated {
+			t.Error("Expected truncation for very large text")
+		}
+		if len(truncated) != MaxChars {
+			t.Errorf("Expected truncated length %d, got %d", MaxChars, len(truncated))
+		}
+	})
+}
+
+// TestEmbedWithTruncation tests that oversized text is truncated before embedding
+func TestEmbedWithTruncation(t *testing.T) {
+	var receivedTextLength int
+
+	server := createMockEmbeddingServer(t, func(w http.ResponseWriter, r *http.Request) {
+		var req openAIEmbedRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Fatalf("Failed to decode request: %v", err)
+		}
+
+		// Extract text from input
+		inputs, ok := req.Input.([]interface{})
+		if !ok {
+			t.Fatalf("Expected Input to be array, got %T", req.Input)
+		}
+		if len(inputs) > 0 {
+			text, ok := inputs[0].(string)
+			if ok {
+				receivedTextLength = len(text)
+			}
+		}
+
+		resp := openAIEmbedResponse{
+			Data: []struct {
+				Embedding []float64 `json:"embedding"`
+			}{
+				{Embedding: []float64{0.1, 0.2, 0.3}},
+			},
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(resp)
+	})
+
+	client := NewClientWithEndpoint(server.URL, "test-model")
+
+	// Create text that exceeds token limit (simulate 12K tokens ≈ 30K chars)
+	largeText := strings.Repeat("a", MaxChars+5000)
+
+	embedding, err := client.Embed(largeText)
+	if err != nil {
+		t.Fatalf("Embed failed: %v", err)
+	}
+
+	if len(embedding) != 3 {
+		t.Errorf("Expected 3 dimensions, got %d", len(embedding))
+	}
+
+	// Verify that the text was truncated to MaxChars
+	if receivedTextLength != MaxChars {
+		t.Errorf("Expected received text length to be %d (truncated), got %d", MaxChars, receivedTextLength)
+	}
+}
+
+// TestEmbedManyWithTruncation tests batch embedding with some oversized texts
+func TestEmbedManyWithTruncation(t *testing.T) {
+	var receivedLengths []int
+
+	server := createMockEmbeddingServer(t, func(w http.ResponseWriter, r *http.Request) {
+		var req openAIEmbedRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Fatalf("Failed to decode request: %v", err)
+		}
+
+		// Track lengths of received texts
+		receivedLengths = []int{}
+		inputs, ok := req.Input.([]interface{})
+		if !ok {
+			t.Fatalf("Expected Input to be array, got %T", req.Input)
+		}
+		for _, input := range inputs {
+			if text, ok := input.(string); ok {
+				receivedLengths = append(receivedLengths, len(text))
+			}
+		}
+
+		// Return mock embeddings for each input
+		resp := openAIEmbedResponse{
+			Data: []struct {
+				Embedding []float64 `json:"embedding"`
+			}{
+				{Embedding: []float64{0.1, 0.2}},
+				{Embedding: []float64{0.3, 0.4}},
+				{Embedding: []float64{0.5, 0.6}},
+			},
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(resp)
+	})
+
+	client := NewClientWithEndpoint(server.URL, "test-model")
+
+	// Mix of normal and oversized texts
+	texts := []string{
+		"short text",
+		strings.Repeat("a", MaxChars+1000), // Oversized
+		"another short text",
+	}
+
+	embeddings, err := client.EmbedMany(texts)
+	if err != nil {
+		t.Fatalf("EmbedMany failed: %v", err)
+	}
+
+	if len(embeddings) != 3 {
+		t.Errorf("Expected 3 embeddings, got %d", len(embeddings))
+	}
+
+	// Verify truncation occurred
+	if len(receivedLengths) != 3 {
+		t.Fatalf("Expected to receive 3 texts, got %d", len(receivedLengths))
+	}
+
+	// First text should be unchanged
+	if receivedLengths[0] != len("short text") {
+		t.Errorf("Expected first text length %d, got %d", len("short text"), receivedLengths[0])
+	}
+
+	// Second text should be truncated to MaxChars
+	if receivedLengths[1] != MaxChars {
+		t.Errorf("Expected second text to be truncated to %d, got %d", MaxChars, receivedLengths[1])
+	}
+
+	// Third text should be unchanged
+	if receivedLengths[2] != len("another short text") {
+		t.Errorf("Expected third text length %d, got %d", len("another short text"), receivedLengths[2])
+	}
+}

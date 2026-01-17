@@ -451,17 +451,41 @@ if strings.Contains(err.Error(), "model not found") {
 }
 ```
 
-### Truncation Detection
+### Automatic Token Truncation
 
-With 32K context window, truncation is rare. But if it happens:
+Code Scout automatically truncates text that exceeds the embedding model's token limit to prevent indexing failures.
+
+**Default limits:**
+- Maximum tokens: 8192 (TEI default for nomic-ai/CodeRankEmbed and nomic-embed-text-v1.5)
+- Character limit: ~19000 chars (conservative estimate: 8192 tokens × 2.3 chars/token)
+
+**Implementation:** [`internal/embeddings/client.go`](../../internal/embeddings/client.go)
 
 ```go
-// Ollama silently truncates beyond context window
-// Detection: Compare input token count vs. context limit
-if estimateTokens(text) > 32768 {
-    log.Warn("Chunk exceeds context window, may be truncated")
+// Truncate text before sending to embedding API
+func truncateText(text string) (string, bool) {
+    if len(text) <= MaxChars {
+        return text, false
+    }
+    truncated := text[:MaxChars]
+    log.Printf("Warning: Text truncated from %d to %d chars to fit %d token limit",
+               len(text), MaxChars, MaxTokens)
+    return truncated, true
 }
 ```
+
+**Behavior:**
+- Text under 19000 chars: Passed through unchanged
+- Text over 19000 chars: Truncated with warning logged
+- Prevents "Input validation error: inputs must have less than 8192 tokens" errors
+- Maintains semantic quality for most code and documentation chunks
+
+**When truncation occurs:**
+- Large documentation files (>19K chars)
+- Very large code functions or classes
+- Files with extensive comments
+
+**Note:** For models with larger context windows (e.g., 32K tokens), the limits can be adjusted in the embedding client constants.
 
 ## Alternative Embedding Models
 
