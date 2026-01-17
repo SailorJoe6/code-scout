@@ -321,7 +321,7 @@ After: 4 results
 **Code**: `deduplicateResults()` at cmd/code-scout/search.go:443-485
 
 ### 5. Reranking (Optional)
-**Component**: Search Command
+**Component**: Search Command with Cross-Encoder Model
 
 ```
 Input: []SearchResult (deduplicated)
@@ -331,19 +331,23 @@ Decision: RerankModel configured?
           ↓
        Yes                    No
         ↓                      ↓
-    Rerank top-K          Skip reranking
-    results                    ↓
-        ↓                      ↓
-    Generate query         Return results
-    embedding with         as-is
-    rerank model               ↓
-        ↓                      ↓
-    Generate candidate         │
-    embeddings for             │
-    top-K results              │
+    Build context          Skip reranking
+    text for each              ↓
+    top-K result           Return results
+        ↓                  as-is
+    Send query +               ↓
+    texts[] to                 │
+    TEI /rerank                │
+    endpoint                   │
         ↓                      │
-    Calculate cosine           │
-    similarity scores          │
+    Cross-encoder              │
+    jointly encodes            │
+    query+document             │
+    pairs                      │
+        ↓                      │
+    Receive relevance          │
+    scores for each            │
+    pair                       │
         ↓                      │
     Sort by rerank             │
     score (descending)         │
@@ -356,67 +360,87 @@ Decision: RerankModel configured?
 Output: []SearchResult (with optional rerank_score)
 ```
 
-**Why Reranking?**
+**Why Cross-Encoder Reranking?**
 
-Vector search uses distance in embedding space, which can miss nuances in the query. Reranking:
-- Generates a fresh embedding of the query+result context
-- Uses a potentially different model optimized for relevance
-- Applies semantic similarity directly between query and result
-- Improves precision for the top-K results
+Vector search (bi-encoder) finds results by comparing query and document embeddings independently. Cross-encoder reranking improves precision by:
+- **Jointly encoding** query+document pairs through a transformer
+- **Capturing interactions** between query and result that bi-encoders miss
+- **Computing relevance** based on cross-attention between query and document tokens
+- **Reordering** results by true semantic relevance, not just embedding distance
+
+**Cross-Encoder vs Bi-Encoder:**
+- **Bi-encoder** (initial search): Fast, encodes query/docs separately, uses vector distance
+- **Cross-encoder** (reranking): Slower, jointly encodes pairs, computes true relevance
 
 **Example Configuration:**
 ```json
 {
-  "rerank_model": "code-scout-text",
+  "endpoint": "http://localhost:11434",
+  "rerank_model": "BAAI/bge-reranker-base",
   "rerank_top_k": 25
 }
 ```
 
 **Reranking Process:**
 
-1. **Context Building**: Each result is formatted with metadata:
+1. **Context Building**: Each result is formatted with rich metadata:
    ```
    File: internal/storage/lancedb.go
    Language: go
    Chunk: function
+   Heading: Search
 
    func Search(embedding []float64, limit int) ([]map[string]interface{}, error) {
        ...
    }
    ```
 
-2. **Embedding Generation**: Generate embeddings for:
-   - Query string (once)
-   - Each of top-K result contexts (in batch)
-
-3. **Similarity Calculation**: For each result:
+2. **Cross-Encoder Request**: Send to TEI `/rerank` endpoint via tei-wrapper:
+   ```json
+   POST http://localhost:11434/rerank
+   {
+     "query": "error handling in database queries",
+     "texts": ["File: ...\nfunc Search...", "File: ...\nfunc Query..."]
+   }
    ```
-   rerank_score = cosine_similarity(query_embedding, result_embedding)
+
+3. **Cross-Encoder Scoring**: TEI cross-encoder model:
+   - Jointly encodes `[query, text]` pairs through transformer
+   - Computes relevance score for each pair
+   - Returns scores sorted by relevance (highest first)
+
+4. **Response**: TEI returns relevance scores:
+   ```json
+   [
+     {"index": 1, "score": 0.9234},
+     {"index": 0, "score": 0.7856}
+   ]
    ```
 
-4. **Reordering**: Sort top-K by rerank_score (higher is better), keeping remaining results in original order
+5. **Reordering**: Sort top-K by rerank_score (higher is better), keeping remaining results in original order
 
 **Result Structure with Reranking:**
 ```go
 SearchResult{
     FilePath:    "internal/storage/lancedb.go",
     Code:        "func Search...",
-    Score:       0.123,        // Original vector distance
-    RerankScore: &0.856,       // Optional: cosine similarity
+    Score:       0.123,        // Original bi-encoder vector distance
+    RerankScore: &0.856,       // Cross-encoder relevance score
 }
 ```
 
 **Performance Considerations:**
-- Only reranksconfigured top-K results (default: same as --limit)
-- Batch embedding generation for efficiency
-- Reranking adds ~100-200ms for top-10 results
+- Only rerank top-K results (default: same as --limit)
+- Cross-encoder inference: ~100-200ms for 10 query+text pairs
+- GPU acceleration recommended for cross-encoders
 - Use larger RerankTopK to improve coverage (e.g., rerank top-25, return top-10)
+- Trade-off: Better precision vs. higher latency
 
 **Code**:
-- `rerankTopK()` at cmd/code-scout/search.go:322-334
-- `rerankResults()` at cmd/code-scout/search.go:336-383
-- `buildRerankText()` at cmd/code-scout/search.go:385-419
-- `cosineSimilarity()` at cmd/code-scout/search.go:421-436
+- `rerankTopK()` at [cmd/code-scout/search.go:322-334](../../cmd/code-scout/search.go)
+- `rerankResults()` at [cmd/code-scout/search.go:336-383](../../cmd/code-scout/search.go)
+- `buildRerankText()` at [cmd/code-scout/search.go:385-419](../../cmd/code-scout/search.go)
+- `RerankClient.Rerank()` at [internal/embeddings/reranker.go](../../internal/embeddings/reranker.go)
 
 ### 6. Output Formatting
 **Component**: Search Command
@@ -457,7 +481,7 @@ Output: Printed to stdout
   "total_results": 25,
   "returned": 10,
   "rerank": {
-    "model": "code-scout-text",
+    "model": "BAAI/bge-reranker-base",
     "top_k": 25
   },
   "results": [
@@ -473,7 +497,7 @@ Output: Printed to stdout
 
 **Human-Readable Output with Reranking:**
 ```
-Found 10 unique code results (reranked by code-scout-text, from 25 total) for: error handling
+Found 10 unique code results (reranked by BAAI/bge-reranker-base, from 25 total) for: error handling
 
 1. internal/storage/lancedb.go:45-67 (vector: 0.1234, rerank: 0.8560)
    Language: go | Source: code | Chunk: function

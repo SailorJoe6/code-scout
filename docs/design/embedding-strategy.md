@@ -542,30 +542,46 @@ Reranking addresses this by:
   "endpoint": "http://localhost:11434",
   "code_model": "nomic-ai/CodeRankEmbed",
   "text_model": "nomic-ai/nomic-embed-text-v1.5",
-  "rerank_model": "BAAI/bge-reranker-large",
-  "rerank_endpoint": "http://localhost:8080",
+  "rerank_model": "BAAI/bge-reranker-base",
   "rerank_top_k": 25
 }
 ```
 
 **Parameters**:
 - `rerank_model`: Cross-encoder model name for reranking (optional, empty = disabled)
-- `rerank_endpoint`: Endpoint for reranking service (optional, defaults to `endpoint`)
 - `rerank_top_k`: Number of top results to rerank (optional, default = search limit)
+- `endpoint`: Single endpoint for all operations (tei-wrapper handles routing to appropriate TEI instances)
+
+**Deployment Architecture**:
+- **tei-wrapper** manages both embedding and reranker TEI instances
+- **Single endpoint**: Code Scout communicates only with tei-wrapper (default: `http://localhost:11434`)
+- **Dual TEI instances**: tei-wrapper spawns separate TEI processes for embeddings (port 8080) and reranking (port 8081)
+- **Auto-routing**: tei-wrapper routes `/v1/embeddings` to embeddings TEI and `/rerank` to reranker TEI
 
 **Model Selection**:
-- **Recommended**: Use a dedicated cross-encoder/reranker model (e.g., `BAAI/bge-reranker-large`, `jina-reranker-v1-base-en`)
-- **Requires**: TEI (Text Embeddings Inference) server with `/rerank` endpoint support
-- **Separate endpoint**: You can run reranking on a different server than embeddings
-- **No reranking**: Faster, but potentially less precise
+- **Recommended**: `BAAI/bge-reranker-base` (~278M params) - balanced speed and accuracy
+- **Higher accuracy**: `BAAI/bge-reranker-large` (~560M params) - slower but more precise
+- **Multilingual**: `BAAI/bge-reranker-v2-m3` (~568M params, 8192 token limit)
+- **Fast/lightweight**: `cross-encoder/ms-marco-MiniLM-L-6-v2` (~22M params)
+- **Speed-optimized**: `jinaai/jina-reranker-v1-turbo-en` (~137M params, 8192 token limit)
 
-**Example TEI reranker deployment**:
+**Deployment**:
 ```bash
-model=BAAI/bge-reranker-large
-docker run --gpus all -p 8080:80 \
-  ghcr.io/huggingface/text-embeddings-inference:latest \
-  --model-id $model
+# Start tei-wrapper (manages both embedding and reranker TEI instances)
+cd cmd/tei-wrapper
+go build -o tei-wrapper .
+./tei-wrapper \
+  --port 11434 \
+  --model nomic-ai/nomic-embed-text-v1.5 \
+  --rerank-model BAAI/bge-reranker-base
+
+# tei-wrapper automatically:
+# 1. Spawns TEI for embeddings on port 8080 (with hot-swapping)
+# 2. Spawns TEI for reranker on port 8081 (dedicated)
+# 3. Exposes unified API on port 11434
 ```
+
+See [RERANKER_SETUP.md](../guides/RERANKER_SETUP.md) for complete setup instructions.
 
 ### Reranking Algorithm
 
@@ -678,16 +694,16 @@ func (c *RerankClient) Rerank(query string, texts []string) ([]RerankResult, err
 }
 ```
 
-**Factory Function** (cmd/code-scout/embeddings_factory.go:24-34):
+**Factory Function** (cmd/code-scout/embeddings_factory.go):
 ```go
 newRerankClient = func() *embeddings.RerankClient {
     if globalConfig != nil && globalConfig.RerankModel != "" {
-        // Use rerank_endpoint if specified, otherwise fall back to main endpoint
-        endpoint := globalConfig.RerankEndpoint
-        if endpoint == "" {
-            endpoint = globalConfig.Endpoint
-        }
-        return embeddings.NewRerankClient(endpoint, globalConfig.APIKey, globalConfig.RerankModel)
+        // Always use main endpoint - tei-wrapper handles routing to reranker
+        return embeddings.NewRerankClient(
+            globalConfig.Endpoint,
+            globalConfig.APIKey,
+            globalConfig.RerankModel,
+        )
     }
     return nil
 }
