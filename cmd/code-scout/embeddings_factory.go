@@ -21,9 +21,14 @@ var (
 		}
 		return embeddings.NewClientWithModel(embeddings.DefaultTextModel)
 	}
-	newRerankEmbeddingClient = func() embeddings.Client {
+	newRerankClient = func() *embeddings.RerankClient {
 		if globalConfig != nil && globalConfig.RerankModel != "" {
-			return embeddings.NewClientWithConfig(globalConfig.Endpoint, globalConfig.APIKey, globalConfig.RerankModel)
+			// Use rerank_endpoint if specified, otherwise fall back to main endpoint
+			endpoint := globalConfig.RerankEndpoint
+			if endpoint == "" {
+				endpoint = globalConfig.Endpoint
+			}
+			return embeddings.NewRerankClient(endpoint, globalConfig.APIKey, globalConfig.RerankModel)
 		}
 		return nil
 	}

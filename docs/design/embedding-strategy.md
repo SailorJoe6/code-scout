@@ -515,19 +515,24 @@ See [extension-points.md](extension-points.md) for detailed guide.
 
 ### Overview
 
-Reranking is an optional second-stage that improves search precision by re-scoring the top-K results using a different similarity calculation.
+Reranking is an optional second-stage that improves search precision by re-scoring the top-K results using a cross-encoder model.
 
 **Why Rerank?**
 
 Vector search finds results based on distance in embedding space, but this can miss nuances:
 - Initial embedding is generated without seeing the query
+- Bi-encoder models encode query and document separately
 - Distance metrics may not perfectly capture relevance
 - Top results may benefit from query-aware scoring
 
 Reranking addresses this by:
-1. Generating fresh embeddings for query and each candidate result
-2. Computing direct cosine similarity between them
-3. Reordering based on this more precise relevance score
+1. Using a cross-encoder (reranker) model that jointly encodes query and result
+2. Computing relevance scores that consider the relationship between query and result
+3. Reordering based on these more precise cross-attention scores
+
+**Cross-Encoder vs Bi-Encoder:**
+- **Bi-encoder** (used for initial search): Encodes query and documents independently, fast but less precise
+- **Cross-encoder** (used for reranking): Jointly encodes query+document pairs, slower but more accurate
 
 ### Configuration
 
@@ -535,21 +540,32 @@ Reranking addresses this by:
 ```json
 {
   "endpoint": "http://localhost:11434",
-  "code_model": "code-scout-code",
-  "text_model": "code-scout-text",
-  "rerank_model": "code-scout-text",
+  "code_model": "nomic-ai/CodeRankEmbed",
+  "text_model": "nomic-ai/nomic-embed-text-v1.5",
+  "rerank_model": "BAAI/bge-reranker-large",
+  "rerank_endpoint": "http://localhost:8080",
   "rerank_top_k": 25
 }
 ```
 
 **Parameters**:
-- `rerank_model`: Model to use for reranking (optional, empty = disabled)
+- `rerank_model`: Cross-encoder model name for reranking (optional, empty = disabled)
+- `rerank_endpoint`: Endpoint for reranking service (optional, defaults to `endpoint`)
 - `rerank_top_k`: Number of top results to rerank (optional, default = search limit)
 
 **Model Selection**:
-- **Same as index model**: Most consistent semantic space
-- **Different model**: Can improve cross-domain queries (e.g., text model for code results)
+- **Recommended**: Use a dedicated cross-encoder/reranker model (e.g., `BAAI/bge-reranker-large`, `jina-reranker-v1-base-en`)
+- **Requires**: TEI (Text Embeddings Inference) server with `/rerank` endpoint support
+- **Separate endpoint**: You can run reranking on a different server than embeddings
 - **No reranking**: Faster, but potentially less precise
+
+**Example TEI reranker deployment**:
+```bash
+model=BAAI/bge-reranker-large
+docker run --gpus all -p 8080:80 \
+  ghcr.io/huggingface/text-embeddings-inference:latest \
+  --model-id $model
+```
 
 ### Reranking Algorithm
 
@@ -568,40 +584,58 @@ func Search(embedding []float64, limit int) ([]map[string]interface{}, error) {
 
 This provides more signal than raw code alone.
 
-**Step 2: Embedding Generation**
+**Step 2: Cross-Encoder Scoring**
 
 ```go
-// Generate query embedding once
-queryEmbedding := rerankClient.Embed(query)
-
-// Generate candidate embeddings in batch
-texts := []string{}
-for _, result := range topK {
-    texts = append(texts, buildRerankText(result))
+// Build context texts for each result
+texts := make([]string, topK)
+for i := 0; i < topK; i++ {
+    texts[i] = buildRerankText(results[i])
 }
-candidateEmbeddings := rerankClient.EmbedMany(texts)
+
+// Use TEI /rerank endpoint with cross-encoder model
+rerankResults, err := client.Rerank(query, texts)
 ```
 
-**Step 3: Similarity Calculation**
+The TEI `/rerank` endpoint:
+- Takes a query and list of texts
+- Uses a cross-encoder model (e.g., BAAI/bge-reranker-large)
+- Returns relevance scores for each query+text pair
+- Scores are already sorted by relevance (highest first)
+
+**Request Format**:
+```json
+{
+  "query": "What is Deep Learning?",
+  "texts": ["Deep Learning is not...", "Deep learning is..."],
+  "raw_scores": false
+}
+```
+
+**Response Format**:
+```json
+[
+  {"index": 1, "score": 0.9993},
+  {"index": 0, "score": 0.2901}
+]
+```
+
+**Step 3: Score Assignment**
 
 ```go
-func cosineSimilarity(a, b []float64) float64 {
-    var dot, normA, normB float64
-    for i := 0; i < len(a); i++ {
-        dot += a[i] * b[i]
-        normA += a[i] * a[i]
-        normB += b[i] * b[i]
+// Map rerank scores back to results
+for _, rr := range rerankResults {
+    if rr.Index >= 0 && rr.Index < topK {
+        reranked[rr.Index] = results[rr.Index]
+        reranked[rr.Index].RerankScore = &rr.Score
     }
-    return dot / (math.Sqrt(normA) * math.Sqrt(normB))
 }
 ```
 
-**Cosine similarity** (range: -1 to 1):
-- 1.0 = identical direction (perfect match)
-- 0.0 = orthogonal (unrelated)
-- -1.0 = opposite direction (negative match)
-
-Higher scores = more relevant.
+**Rerank scores** (range: 0 to 1 for normalized scores):
+- Higher scores = more relevant
+- Scores reflect cross-attention between query and result
+- More precise than distance-based vector similarity
 
 **Step 4: Reordering**
 
@@ -617,17 +651,45 @@ combined := append(reranked, results[topK:]...)
 
 ### Implementation
 
-**Factory Function** (cmd/code-scout/embeddings_factory.go:24-30):
+**Rerank Client** (internal/embeddings/reranker.go):
 ```go
-newRerankEmbeddingClient = func() embeddings.Client {
-    if globalConfig != nil && globalConfig.RerankModel != "" {
-        return embeddings.NewClientWithConfig(
-            globalConfig.Endpoint,
-            globalConfig.APIKey,
-            globalConfig.RerankModel,
-        )
+type RerankClient struct {
+    endpoint string
+    apiKey   string
+    model    string
+    client   *http.Client
+}
+
+func (c *RerankClient) Rerank(query string, texts []string) ([]RerankResult, error) {
+    reqBody := RerankRequest{
+        Query:      query,
+        Texts:      texts,
+        RawScores:  false, // Use normalized scores
+        ReturnText: false,
     }
-    return nil  // Reranking disabled
+
+    // POST to /rerank endpoint
+    resp, err := c.client.Post(c.endpoint + "/rerank", "application/json", jsonData)
+    // ... handle response
+
+    var results []RerankResult
+    json.NewDecoder(resp.Body).Decode(&results)
+    return results, nil
+}
+```
+
+**Factory Function** (cmd/code-scout/embeddings_factory.go:24-34):
+```go
+newRerankClient = func() *embeddings.RerankClient {
+    if globalConfig != nil && globalConfig.RerankModel != "" {
+        // Use rerank_endpoint if specified, otherwise fall back to main endpoint
+        endpoint := globalConfig.RerankEndpoint
+        if endpoint == "" {
+            endpoint = globalConfig.Endpoint
+        }
+        return embeddings.NewRerankClient(endpoint, globalConfig.APIKey, globalConfig.RerankModel)
+    }
+    return nil
 }
 ```
 
@@ -638,27 +700,33 @@ func rerankResults(results []SearchResult, query string, topK int) ([]SearchResu
         return results, nil
     }
 
-    client := newRerankEmbeddingClient()
+    client := newRerankClient()
     if client == nil {
-        return results, nil  // Skip if not configured
+        return results, nil
     }
 
-    // Generate embeddings
-    queryEmbedding, _ := client.Embed(query)
+    // Build context texts for each result
     texts := make([]string, topK)
     for i := 0; i < topK; i++ {
         texts[i] = buildRerankText(results[i])
     }
-    candidateEmbeddings, _ := client.EmbedMany(texts)
 
-    // Calculate scores and reorder
-    reranked := make([]SearchResult, topK)
-    copy(reranked, results[:topK])
-    for i := range reranked {
-        score := cosineSimilarity(queryEmbedding, candidateEmbeddings[i])
-        reranked[i].RerankScore = &score
+    // Use cross-encoder to rerank
+    rerankResults, err := client.Rerank(query, texts)
+    if err != nil {
+        return nil, fmt.Errorf("failed to rerank results: %w", err)
     }
 
+    // Create reranked slice with scores
+    reranked := make([]SearchResult, topK)
+    for _, rr := range rerankResults {
+        if rr.Index >= 0 && rr.Index < topK {
+            reranked[rr.Index] = results[rr.Index]
+            reranked[rr.Index].RerankScore = &rr.Score
+        }
+    }
+
+    // Sort by rerank score (highest first)
     sort.SliceStable(reranked, func(i, j int) bool {
         return *reranked[i].RerankScore > *reranked[j].RerankScore
     })
@@ -670,15 +738,21 @@ func rerankResults(results []SearchResult, query string, topK int) ([]SearchResu
 ### Performance
 
 **Overhead**:
-- Query embedding: ~50ms
-- Candidate embeddings (batch of 10): ~100-150ms
-- Similarity calculation: <1ms
-- **Total**: ~150-200ms for top-10 reranking
+- Cross-encoder inference (batch of 10 query+text pairs): ~100-200ms
+- Network request to TEI `/rerank` endpoint: ~10-20ms
+- Score processing and sorting: <1ms
+- **Total**: ~120-220ms for top-10 reranking
+
+**Why Cross-Encoders are Slower**:
+- Must process each query+text pair through transformer
+- Cannot precompute like bi-encoders (query-dependent)
+- O(n) complexity where n = number of candidates
 
 **Optimization**:
-- Batch embedding generation reduces API calls
+- TEI batches reranking requests efficiently
+- GPU acceleration recommended for cross-encoders
 - Only rerank top-K (not all results)
-- Use smaller rerank model if speed-critical
+- Use smaller rerank model if speed-critical (e.g., `bge-reranker-base` vs `bge-reranker-large`)
 
 **Recommended Settings**:
 - **High precision needed**: `rerank_top_k: 50` (rerank more, return fewer)
@@ -701,7 +775,7 @@ func rerankResults(results []SearchResult, query string, topK int) ([]SearchResu
 ```json
 {
   "rerank": {
-    "model": "code-scout-text",
+    "model": "BAAI/bge-reranker-large",
     "top_k": 25
   },
   "results": [
@@ -713,6 +787,10 @@ func rerankResults(results []SearchResult, query string, topK int) ([]SearchResu
   ]
 }
 ```
+
+**Rerank score interpretation**:
+- Vector score (0.0-1.0): L2 distance (lower is better, inverted for display)
+- Rerank score (0.0-1.0): Cross-encoder relevance (higher is better)
 
 ### When to Use Reranking
 

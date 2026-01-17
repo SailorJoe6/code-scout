@@ -242,7 +242,8 @@ Create a JSON file with the following structure:
 - `api_key`: (Optional) API key for authentication. Sent as `Authorization: Bearer <api_key>` header
 - `code_model`: Model name to use for code embeddings
 - `text_model`: Model name to use for documentation embeddings
-- `rerank_model`: (Optional) Model name to use for reranking top results
+- `rerank_model`: (Optional) Cross-encoder model name for reranking (e.g., `BAAI/bge-reranker-large`). Requires TEI with `/rerank` endpoint
+- `rerank_endpoint`: (Optional) Separate endpoint for reranking service. Defaults to `endpoint` if not specified
 - `rerank_top_k`: (Optional) Number of top results to rerank (defaults to search `--limit` when `rerank_model` is set)
 - `single_model_mode`: (Optional, default: `true`) Use single TEI process with model switching. Set to `false` for multi-model mode (runs separate TEI processes for each model simultaneously, higher memory but faster)
 
@@ -291,11 +292,29 @@ Defaults target the TEI wrapper (CodeRankEmbed + nomic-embed-text-v1.5). If you 
   "endpoint": "http://my-gpu-server:11434",
   "code_model": "nomic-ai/nomic-embed-code",
   "text_model": "nomic-ai/nomic-embed-text-v1.5",
-  "rerank_model": "nomic-ai/nomic-embed-text-v1.5",
-  "rerank_top_k": 25
+  "rerank_model": "",
+  "rerank_top_k": 0
 }
 ```
 Note: `nomic-ai/nomic-embed-code` requires a powerful GPU and lots of RAM and is Ollama-only today. If your remote server runs TEI, use `nomic-ai/CodeRankEmbed` instead.
+
+**With Cross-Encoder Reranking (Separate TEI Server)**:
+```json
+{
+  "endpoint": "http://localhost:11434",
+  "code_model": "nomic-ai/CodeRankEmbed",
+  "text_model": "nomic-ai/nomic-embed-text-v1.5",
+  "rerank_model": "BAAI/bge-reranker-large",
+  "rerank_endpoint": "http://localhost:8080",
+  "rerank_top_k": 25
+}
+```
+This configuration uses a separate TEI server running a cross-encoder model for reranking. Deploy the reranker with:
+```bash
+docker run --gpus all -p 8080:80 \
+  ghcr.io/huggingface/text-embeddings-inference:latest \
+  --model-id BAAI/bge-reranker-large
+```
 
 ### CLI Flag Override
 

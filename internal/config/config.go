@@ -15,7 +15,8 @@ type Config struct {
 	APIKey          string `json:"api_key,omitempty"`           // Optional API key for authentication
 	CodeModel       string `json:"code_model"`
 	TextModel       string `json:"text_model"`
-	RerankModel     string `json:"rerank_model,omitempty"`
+	RerankModel     string `json:"rerank_model,omitempty"`      // Model name for reranking (enables reranking if set)
+	RerankEndpoint  string `json:"rerank_endpoint,omitempty"`   // Optional separate endpoint for reranking (defaults to Endpoint)
 	RerankTopK      int    `json:"rerank_top_k,omitempty"`
 	SingleModelMode *bool  `json:"single_model_mode,omitempty"` // Use single TEI process with model switching (default: true)
 }
@@ -102,6 +103,9 @@ func mergeConfig(dst, src *Config) {
 	}
 	if src.RerankModel != "" {
 		dst.RerankModel = src.RerankModel
+	}
+	if src.RerankEndpoint != "" {
+		dst.RerankEndpoint = src.RerankEndpoint
 	}
 	if src.RerankTopK != 0 {
 		dst.RerankTopK = src.RerankTopK

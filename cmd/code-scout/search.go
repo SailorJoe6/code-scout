@@ -3,7 +3,6 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"math"
 	"os"
 	"sort"
 	"strings"
@@ -341,33 +340,33 @@ func rerankResults(results []SearchResult, query string, topK int) ([]SearchResu
 		topK = len(results)
 	}
 
-	client := newRerankEmbeddingClient()
+	client := newRerankClient()
 	if client == nil {
 		return results, nil
 	}
 
-	queryEmbedding, err := client.Embed(query)
-	if err != nil {
-		return nil, fmt.Errorf("failed to generate rerank query embedding: %w", err)
-	}
-
+	// Build context texts for each result
 	texts := make([]string, topK)
 	for i := 0; i < topK; i++ {
 		texts[i] = buildRerankText(results[i])
 	}
 
-	candidateEmbeddings, err := client.EmbedMany(texts)
+	// Use cross-encoder to rerank
+	rerankResults, err := client.Rerank(query, texts)
 	if err != nil {
-		return nil, fmt.Errorf("failed to generate rerank embeddings: %w", err)
+		return nil, fmt.Errorf("failed to rerank results: %w", err)
 	}
 
+	// Create reranked slice with scores
 	reranked := make([]SearchResult, topK)
-	copy(reranked, results[:topK])
-	for i := range reranked {
-		score := cosineSimilarity(queryEmbedding, candidateEmbeddings[i])
-		reranked[i].RerankScore = float64Ptr(score)
+	for _, rr := range rerankResults {
+		if rr.Index >= 0 && rr.Index < topK {
+			reranked[rr.Index] = results[rr.Index]
+			reranked[rr.Index].RerankScore = float64Ptr(rr.Score)
+		}
 	}
 
+	// Sort by rerank score (highest first)
 	sort.SliceStable(reranked, func(i, j int) bool {
 		if reranked[i].RerankScore == nil || reranked[j].RerankScore == nil {
 			return reranked[i].Score < reranked[j].Score
@@ -416,23 +415,6 @@ func buildRerankText(result SearchResult) string {
 	}
 	builder.WriteString(result.Code)
 	return strings.TrimSpace(builder.String())
-}
-
-func cosineSimilarity(a, b []float64) float64 {
-	var dot, normA, normB float64
-	length := len(a)
-	if len(b) < length {
-		length = len(b)
-	}
-	for i := 0; i < length; i++ {
-		dot += a[i] * b[i]
-		normA += a[i] * a[i]
-		normB += b[i] * b[i]
-	}
-	if normA == 0 || normB == 0 {
-		return 0
-	}
-	return dot / (math.Sqrt(normA) * math.Sqrt(normB))
 }
 
 func float64Ptr(val float64) *float64 {
