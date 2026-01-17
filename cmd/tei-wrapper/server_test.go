@@ -167,8 +167,8 @@ func TestHealthEndpoint(t *testing.T) {
 		t.Errorf("Expected status='ok', got %v", health["status"])
 	}
 
-	if health["model"] != "test-model" {
-		t.Errorf("Expected model='test-model', got %v", health["model"])
+	if health["embedding_model"] != "test-model" {
+		t.Errorf("Expected embedding_model='test-model', got %v", health["embedding_model"])
 	}
 }
 
@@ -327,8 +327,8 @@ func TestHealthWithModelInfo(t *testing.T) {
 			t.Errorf("Expected status='ok', got %v", health["status"])
 		}
 
-		if health["model"] != "test-model" {
-			t.Errorf("Expected model='test-model', got %v", health["model"])
+		if health["embedding_model"] != "test-model" {
+			t.Errorf("Expected embedding_model='test-model', got %v", health["embedding_model"])
 		}
 	})
 
@@ -1230,5 +1230,508 @@ func TestMaxBatchTokensConfiguration(t *testing.T) {
 				t.Errorf("Expected maxBatchTokens=%d, got %d", tc.maxBatchTokens, server.maxBatchTokens)
 			}
 		})
+	}
+}
+
+// ============================================================================
+// Reranker Tests
+// ============================================================================
+
+// TestHandleRerankSuccess tests successful rerank requests
+func TestHandleRerankSuccess(t *testing.T) {
+	// Create mock reranker TEI
+	mockReranker := createMockRerankerTEI(t)
+	defer mockReranker.Close()
+
+	server := &Server{
+		rerankModel:   "BAAI/bge-reranker-base",
+		rerankBaseURL: mockReranker.URL,
+		rerankHealthy: true,
+		client: &http.Client{
+			Timeout: 10 * time.Second,
+		},
+	}
+
+	testServer := httptest.NewServer(http.HandlerFunc(server.handleRerank))
+	defer testServer.Close()
+
+	// Send rerank request
+	reqBody := RerankRequest{
+		Query: "test query",
+		Texts: []string{"document 1", "document 2", "document 3"},
+	}
+
+	bodyBytes, _ := json.Marshal(reqBody)
+	resp, err := http.Post(testServer.URL, "application/json", bytes.NewReader(bodyBytes))
+	if err != nil {
+		t.Fatalf("Request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("Expected status 200, got %d", resp.StatusCode)
+	}
+
+	// Parse response
+	var results []RerankResult
+	if err := json.NewDecoder(resp.Body).Decode(&results); err != nil {
+		t.Fatalf("Failed to parse response: %v", err)
+	}
+
+	if len(results) != 3 {
+		t.Fatalf("Expected 3 results, got %d", len(results))
+	}
+
+	// Verify results have expected structure
+	for i, result := range results {
+		if result.Index != i {
+			t.Errorf("Expected index=%d, got %d", i, result.Index)
+		}
+		if result.Score <= 0 {
+			t.Errorf("Expected positive score, got %f", result.Score)
+		}
+	}
+}
+
+// TestHandleRerankNotConfigured tests rerank when not configured
+func TestHandleRerankNotConfigured(t *testing.T) {
+	server := &Server{
+		rerankModel: "", // Not configured
+		client: &http.Client{
+			Timeout: 10 * time.Second,
+		},
+	}
+
+	testServer := httptest.NewServer(http.HandlerFunc(server.handleRerank))
+	defer testServer.Close()
+
+	reqBody := RerankRequest{
+		Query: "test query",
+		Texts: []string{"doc1"},
+	}
+
+	bodyBytes, _ := json.Marshal(reqBody)
+	resp, err := http.Post(testServer.URL, "application/json", bytes.NewReader(bodyBytes))
+	if err != nil {
+		t.Fatalf("Request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusNotFound {
+		t.Errorf("Expected status 404 when reranker not configured, got %d", resp.StatusCode)
+	}
+}
+
+// TestHandleRerankUnhealthy tests rerank when reranker TEI is unhealthy
+func TestHandleRerankUnhealthy(t *testing.T) {
+	server := &Server{
+		rerankModel:   "BAAI/bge-reranker-base",
+		rerankBaseURL: "http://localhost:9999", // Non-existent server
+		rerankHealthy: false,
+		client: &http.Client{
+			Timeout: 100 * time.Millisecond,
+		},
+	}
+
+	testServer := httptest.NewServer(http.HandlerFunc(server.handleRerank))
+	defer testServer.Close()
+
+	reqBody := RerankRequest{
+		Query: "test query",
+		Texts: []string{"doc1"},
+	}
+
+	bodyBytes, _ := json.Marshal(reqBody)
+	resp, err := http.Post(testServer.URL, "application/json", bytes.NewReader(bodyBytes))
+	if err != nil {
+		t.Fatalf("Request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusServiceUnavailable {
+		t.Errorf("Expected status 503 when reranker unhealthy, got %d", resp.StatusCode)
+	}
+
+	// Check Retry-After header
+	retryAfter := resp.Header.Get("Retry-After")
+	if retryAfter != "5" {
+		t.Errorf("Expected Retry-After=5, got %s", retryAfter)
+	}
+}
+
+// TestHandleRerankWrongMethod tests wrong HTTP method
+func TestHandleRerankWrongMethod(t *testing.T) {
+	server := &Server{
+		rerankModel: "BAAI/bge-reranker-base",
+	}
+
+	testServer := httptest.NewServer(http.HandlerFunc(server.handleRerank))
+	defer testServer.Close()
+
+	resp, err := http.Get(testServer.URL)
+	if err != nil {
+		t.Fatalf("Request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusMethodNotAllowed {
+		t.Errorf("Expected status 405, got %d", resp.StatusCode)
+	}
+}
+
+// TestCheckRerankHealth tests the reranker health check function
+func TestCheckRerankHealth(t *testing.T) {
+	t.Run("NotConfigured", func(t *testing.T) {
+		server := &Server{
+			rerankModel: "", // Not configured
+		}
+
+		healthy := server.checkRerankHealth()
+		if healthy {
+			t.Error("Expected unhealthy when reranker not configured")
+		}
+	})
+
+	t.Run("Healthy", func(t *testing.T) {
+		mockReranker := createMockRerankerTEI(t)
+		defer mockReranker.Close()
+
+		server := &Server{
+			rerankModel:   "BAAI/bge-reranker-base",
+			rerankBaseURL: mockReranker.URL,
+			client: &http.Client{
+				Timeout: 10 * time.Second,
+			},
+		}
+
+		healthy := server.checkRerankHealth()
+		if !healthy {
+			t.Error("Expected healthy when reranker is available")
+		}
+		if !server.rerankHealthy {
+			t.Error("Expected rerankHealthy to be set to true")
+		}
+	})
+
+	t.Run("Unhealthy", func(t *testing.T) {
+		server := &Server{
+			rerankModel:   "BAAI/bge-reranker-base",
+			rerankBaseURL: "http://localhost:9999",
+			client: &http.Client{
+				Timeout: 100 * time.Millisecond,
+			},
+		}
+
+		healthy := server.checkRerankHealth()
+		if healthy {
+			t.Error("Expected unhealthy when reranker is down")
+		}
+		if server.rerankHealthy {
+			t.Error("Expected rerankHealthy to be set to false")
+		}
+	})
+}
+
+// TestHealthEndpointWithReranker tests health endpoint includes reranker status
+func TestHealthEndpointWithReranker(t *testing.T) {
+	t.Run("WithRerankerHealthy", func(t *testing.T) {
+		mockTEI := createMockTEI(t)
+		defer mockTEI.Close()
+		mockReranker := createMockRerankerTEI(t)
+		defer mockReranker.Close()
+
+		server := &Server{
+			teiBaseURL:    mockTEI.URL,
+			currentModel:  "test-model",
+			rerankModel:   "BAAI/bge-reranker-base",
+			rerankPort:    8081,
+			rerankBaseURL: mockReranker.URL,
+			client: &http.Client{
+				Timeout: 10 * time.Second,
+			},
+		}
+
+		testServer := httptest.NewServer(http.HandlerFunc(server.handleHealth))
+		defer testServer.Close()
+
+		resp, err := http.Get(testServer.URL)
+		if err != nil {
+			t.Fatalf("Request failed: %v", err)
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("Expected status 200, got %d", resp.StatusCode)
+		}
+
+		var health map[string]interface{}
+		if err := json.NewDecoder(resp.Body).Decode(&health); err != nil {
+			t.Fatalf("Failed to parse response: %v", err)
+		}
+
+		// Check embedding_model field (new format)
+		if health["embedding_model"] != "test-model" {
+			t.Errorf("Expected embedding_model='test-model', got %v", health["embedding_model"])
+		}
+
+		// Check reranker info
+		reranker, ok := health["reranker"].(map[string]interface{})
+		if !ok {
+			t.Fatal("Expected reranker info in health response")
+		}
+
+		if reranker["enabled"] != true {
+			t.Errorf("Expected reranker enabled=true, got %v", reranker["enabled"])
+		}
+		if reranker["healthy"] != true {
+			t.Errorf("Expected reranker healthy=true, got %v", reranker["healthy"])
+		}
+		if reranker["model"] != "BAAI/bge-reranker-base" {
+			t.Errorf("Expected reranker model='BAAI/bge-reranker-base', got %v", reranker["model"])
+		}
+		if reranker["port"] != float64(8081) {
+			t.Errorf("Expected reranker port=8081, got %v", reranker["port"])
+		}
+	})
+
+	t.Run("WithRerankerUnhealthy", func(t *testing.T) {
+		mockTEI := createMockTEI(t)
+		defer mockTEI.Close()
+
+		server := &Server{
+			teiBaseURL:    mockTEI.URL,
+			currentModel:  "test-model",
+			rerankModel:   "BAAI/bge-reranker-base",
+			rerankPort:    8081,
+			rerankBaseURL: "http://localhost:9999", // Non-existent
+			client: &http.Client{
+				Timeout: 100 * time.Millisecond,
+			},
+		}
+
+		testServer := httptest.NewServer(http.HandlerFunc(server.handleHealth))
+		defer testServer.Close()
+
+		resp, err := http.Get(testServer.URL)
+		if err != nil {
+			t.Fatalf("Request failed: %v", err)
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("Expected status 200, got %d", resp.StatusCode)
+		}
+
+		var health map[string]interface{}
+		if err := json.NewDecoder(resp.Body).Decode(&health); err != nil {
+			t.Fatalf("Failed to parse response: %v", err)
+		}
+
+		// Reranker should show as unhealthy
+		reranker, ok := health["reranker"].(map[string]interface{})
+		if !ok {
+			t.Fatal("Expected reranker info in health response")
+		}
+
+		if reranker["healthy"] != false {
+			t.Errorf("Expected reranker healthy=false, got %v", reranker["healthy"])
+		}
+	})
+
+	t.Run("WithoutReranker", func(t *testing.T) {
+		mockTEI := createMockTEI(t)
+		defer mockTEI.Close()
+
+		server := &Server{
+			teiBaseURL:   mockTEI.URL,
+			currentModel: "test-model",
+			rerankModel:  "", // Not configured
+			client: &http.Client{
+				Timeout: 10 * time.Second,
+			},
+		}
+
+		testServer := httptest.NewServer(http.HandlerFunc(server.handleHealth))
+		defer testServer.Close()
+
+		resp, err := http.Get(testServer.URL)
+		if err != nil {
+			t.Fatalf("Request failed: %v", err)
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("Expected status 200, got %d", resp.StatusCode)
+		}
+
+		var health map[string]interface{}
+		if err := json.NewDecoder(resp.Body).Decode(&health); err != nil {
+			t.Fatalf("Failed to parse response: %v", err)
+		}
+
+		// Should not have reranker info
+		if _, ok := health["reranker"]; ok {
+			t.Error("Did not expect reranker info when not configured")
+		}
+	})
+}
+
+// TestWaitForRerankTEI tests the reranker TEI readiness polling
+func TestWaitForRerankTEI(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		mockReranker := createMockRerankerTEI(t)
+		defer mockReranker.Close()
+
+		server := &Server{
+			rerankBaseURL: mockReranker.URL,
+			client: &http.Client{
+				Timeout: 5 * time.Second,
+			},
+		}
+
+		err := server.waitForRerankTEI(5 * time.Second)
+		if err != nil {
+			t.Errorf("waitForRerankTEI should succeed, got error: %v", err)
+		}
+		if !server.rerankHealthy {
+			t.Error("Expected rerankHealthy to be true after successful wait")
+		}
+	})
+
+	t.Run("Timeout", func(t *testing.T) {
+		server := &Server{
+			rerankBaseURL: "http://localhost:9999",
+			client: &http.Client{
+				Timeout: 100 * time.Millisecond,
+			},
+		}
+
+		err := server.waitForRerankTEI(500 * time.Millisecond)
+		if err == nil {
+			t.Error("waitForRerankTEI should timeout when reranker is not available")
+		}
+
+		if err != nil && !contains(err.Error(), "did not become ready") {
+			t.Errorf("Expected timeout error, got: %v", err)
+		}
+	})
+}
+
+// TestStopRerankTEI tests reranker TEI process shutdown
+func TestStopRerankTEI(t *testing.T) {
+	t.Run("NilProcess", func(t *testing.T) {
+		server := &Server{
+			rerankCmd: nil,
+		}
+
+		// Should not panic
+		server.stopRerankTEI()
+	})
+
+	t.Run("NilCommand", func(t *testing.T) {
+		server := &Server{}
+
+		// Should not panic
+		server.stopRerankTEI()
+	})
+}
+
+// TestRerankRequestFormat tests rerank request/response format
+func TestRerankRequestFormat(t *testing.T) {
+	mockReranker := createMockRerankerTEI(t)
+	defer mockReranker.Close()
+
+	server := &Server{
+		rerankModel:   "BAAI/bge-reranker-base",
+		rerankBaseURL: mockReranker.URL,
+		rerankHealthy: true,
+		client: &http.Client{
+			Timeout: 10 * time.Second,
+		},
+	}
+
+	testServer := httptest.NewServer(http.HandlerFunc(server.handleRerank))
+	defer testServer.Close()
+
+	t.Run("WithRawScores", func(t *testing.T) {
+		reqBody := RerankRequest{
+			Query:     "test query",
+			Texts:     []string{"doc1", "doc2"},
+			RawScores: true,
+		}
+
+		bodyBytes, _ := json.Marshal(reqBody)
+		resp, err := http.Post(testServer.URL, "application/json", bytes.NewReader(bodyBytes))
+		if err != nil {
+			t.Fatalf("Request failed: %v", err)
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusOK {
+			t.Errorf("Expected status 200, got %d", resp.StatusCode)
+		}
+	})
+
+	t.Run("WithReturnText", func(t *testing.T) {
+		reqBody := RerankRequest{
+			Query:      "test query",
+			Texts:      []string{"doc1", "doc2"},
+			ReturnText: true,
+		}
+
+		bodyBytes, _ := json.Marshal(reqBody)
+		resp, err := http.Post(testServer.URL, "application/json", bytes.NewReader(bodyBytes))
+		if err != nil {
+			t.Fatalf("Request failed: %v", err)
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusOK {
+			t.Errorf("Expected status 200, got %d", resp.StatusCode)
+		}
+	})
+}
+
+// TestHandleRerankBackendError tests error handling when reranker TEI returns an error
+func TestHandleRerankBackendError(t *testing.T) {
+	// Create mock that returns error
+	mockReranker := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/health" {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		// Return error for rerank endpoint
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte("Internal error"))
+	}))
+	defer mockReranker.Close()
+
+	server := &Server{
+		rerankModel:   "BAAI/bge-reranker-base",
+		rerankBaseURL: mockReranker.URL,
+		rerankHealthy: true,
+		client: &http.Client{
+			Timeout: 10 * time.Second,
+		},
+	}
+
+	testServer := httptest.NewServer(http.HandlerFunc(server.handleRerank))
+	defer testServer.Close()
+
+	reqBody := RerankRequest{
+		Query: "test query",
+		Texts: []string{"doc1"},
+	}
+
+	bodyBytes, _ := json.Marshal(reqBody)
+	resp, err := http.Post(testServer.URL, "application/json", bytes.NewReader(bodyBytes))
+	if err != nil {
+		t.Fatalf("Request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	// Should return 500 from backend
+	if resp.StatusCode != http.StatusInternalServerError {
+		t.Errorf("Expected status 500, got %d", resp.StatusCode)
 	}
 }

@@ -108,14 +108,14 @@ func TestNewDocsEmbeddingClient(t *testing.T) {
 	})
 }
 
-// Test newRerankEmbeddingClient factory function
+// Test newRerankClient factory function
 func TestNewRerankEmbeddingClient(t *testing.T) {
 	t.Run("with nil globalConfig", func(t *testing.T) {
 		originalConfig := globalConfig
 		defer func() { globalConfig = originalConfig }()
 
 		globalConfig = nil
-		client := newRerankEmbeddingClient()
+		client := newRerankClient()
 
 		if client != nil {
 			t.Error("expected nil client when globalConfig is nil")
@@ -133,7 +133,7 @@ func TestNewRerankEmbeddingClient(t *testing.T) {
 			RerankModel: "", // Empty rerank model
 		}
 
-		client := newRerankEmbeddingClient()
+		client := newRerankClient()
 
 		if client != nil {
 			t.Error("expected nil client when RerankModel is empty")
@@ -150,7 +150,7 @@ func TestNewRerankEmbeddingClient(t *testing.T) {
 			RerankModel: "rerank-model",
 		}
 
-		client := newRerankEmbeddingClient()
+		client := newRerankClient()
 
 		if client == nil {
 			t.Error("expected non-nil client when RerankModel is set")
@@ -166,7 +166,7 @@ func TestNewRerankEmbeddingClient(t *testing.T) {
 			RerankModel: "custom-rerank-model",
 		}
 
-		client := newRerankEmbeddingClient()
+		client := newRerankClient()
 
 		if client == nil {
 			t.Error("expected non-nil client")
@@ -190,7 +190,7 @@ func TestFactoryFunctionConsistency(t *testing.T) {
 
 		codeClient := newCodeEmbeddingClient()
 		docsClient := newDocsEmbeddingClient()
-		rerankClient := newRerankEmbeddingClient()
+		rerankClient := newRerankClient()
 
 		if codeClient == nil {
 			t.Error("code client should not be nil")

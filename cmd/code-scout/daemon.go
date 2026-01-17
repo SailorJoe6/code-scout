@@ -431,6 +431,8 @@ func runIndexing(rootDir string, logger *log.Logger) error {
 }
 
 // getDaemonPID reads the PID file and checks if the process is running
+// Returns (pid, running) where pid is the stored PID and running indicates
+// if the process is actually alive.
 func getDaemonPID(pidPath string) (int, bool) {
 	pidData, err := os.ReadFile(pidPath)
 	if err != nil {
@@ -445,13 +447,13 @@ func getDaemonPID(pidPath string) (int, bool) {
 	// Check if process exists
 	process, err := os.FindProcess(pid)
 	if err != nil {
-		return 0, false
+		return pid, false // PID found but process lookup failed
 	}
 
 	// Send signal 0 to check if process is alive (doesn't actually kill it)
 	err = process.Signal(syscall.Signal(0))
 	if err != nil {
-		return 0, false
+		return pid, false // PID found but process not running
 	}
 
 	return pid, true

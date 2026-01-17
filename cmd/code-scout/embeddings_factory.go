@@ -23,12 +23,8 @@ var (
 	}
 	newRerankClient = func() *embeddings.RerankClient {
 		if globalConfig != nil && globalConfig.RerankModel != "" {
-			// Use rerank_endpoint if specified, otherwise fall back to main endpoint
-			endpoint := globalConfig.RerankEndpoint
-			if endpoint == "" {
-				endpoint = globalConfig.Endpoint
-			}
-			return embeddings.NewRerankClient(endpoint, globalConfig.APIKey, globalConfig.RerankModel)
+			// Always use main endpoint - tei-wrapper handles routing to reranker TEI
+			return embeddings.NewRerankClient(globalConfig.Endpoint, globalConfig.APIKey, globalConfig.RerankModel)
 		}
 		return nil
 	}

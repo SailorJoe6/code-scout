@@ -40,3 +40,36 @@ func createMockTEI(t *testing.T) *httptest.Server {
 		}
 	}))
 }
+
+// Mock reranker TEI server for testing
+func createMockRerankerTEI(t *testing.T) *httptest.Server {
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/health":
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte("OK"))
+
+		case "/rerank":
+			// Parse request
+			var req RerankRequest
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+				t.Fatalf("Failed to parse rerank request: %v", err)
+			}
+
+			// Return mock rerank results (sorted by score, highest first)
+			results := make([]RerankResult, len(req.Texts))
+			for i := range req.Texts {
+				results[i] = RerankResult{
+					Index: i,
+					Score: 1.0 - float64(i)*0.1, // Decreasing scores
+				}
+			}
+
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(results)
+
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+}

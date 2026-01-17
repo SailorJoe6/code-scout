@@ -1,7 +1,6 @@
 package main
 
 import (
-	"math"
 	"testing"
 
 	"github.com/jlanders/code-scout/internal/config"
@@ -415,61 +414,8 @@ func TestGetFloat64OrDefault(t *testing.T) {
 	}
 }
 
-// Test cosineSimilarity function
-func TestCosineSimilarity(t *testing.T) {
-	tests := []struct {
-		name     string
-		a        []float64
-		b        []float64
-		expected float64
-	}{
-		{
-			name:     "identical vectors",
-			a:        []float64{1, 0, 0},
-			b:        []float64{1, 0, 0},
-			expected: 1.0,
-		},
-		{
-			name:     "orthogonal vectors",
-			a:        []float64{1, 0, 0},
-			b:        []float64{0, 1, 0},
-			expected: 0.0,
-		},
-		{
-			name:     "opposite vectors",
-			a:        []float64{1, 0, 0},
-			b:        []float64{-1, 0, 0},
-			expected: -1.0,
-		},
-		{
-			name:     "similar vectors",
-			a:        []float64{1, 1, 0},
-			b:        []float64{1, 0.5, 0},
-			expected: 0.9486832980505138, // sqrt(2) / sqrt(2.25)
-		},
-		{
-			name:     "zero vector returns 0",
-			a:        []float64{0, 0, 0},
-			b:        []float64{1, 2, 3},
-			expected: 0.0,
-		},
-		{
-			name:     "different length vectors (uses minimum)",
-			a:        []float64{1, 0, 0, 0, 0},
-			b:        []float64{1, 0},
-			expected: 1.0,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := cosineSimilarity(tt.a, tt.b)
-			if math.Abs(result-tt.expected) > 1e-9 {
-				t.Errorf("expected %f, got %f", tt.expected, result)
-			}
-		})
-	}
-}
+// NOTE: TestCosineSimilarity was removed as the cosineSimilarity function
+// was replaced with proper cross-encoder reranking (see code_scout-n5n)
 
 // Test deduplicateResults function
 func TestDeduplicateResults(t *testing.T) {

@@ -71,6 +71,13 @@ type Server struct {
 
 	// Memory management
 	maxBatchTokens int           // Max batch tokens for TEI (controls memory usage)
+
+	// Reranker TEI management (dedicated second instance)
+	rerankPort    int           // Port for reranker TEI (default: 8081)
+	rerankModel   string        // Model ID for reranker (empty = disabled)
+	rerankCmd     *exec.Cmd     // Reranker TEI process
+	rerankBaseURL string        // http://localhost:{rerankPort}
+	rerankHealthy bool          // Current health status
 }
 
 func main() {
@@ -82,6 +89,10 @@ func main() {
 	idlePreload := flag.Bool("idle-preload", false, "Enable idle-based preloading of text model")
 	idleTimeout := flag.Duration("idle-timeout", 30*time.Second, "Idle time before preloading text model")
 	maxBatchTokens := flag.Int("max-batch-tokens", 8192, "Maximum batch tokens for TEI (controls memory usage, lower = less RAM)")
+
+	// Reranker flags (optional - enables dedicated reranker TEI instance)
+	rerankPort := flag.Int("rerank-port", 8081, "Port for reranker TEI instance")
+	rerankModel := flag.String("rerank-model", "", "Model ID for reranker (e.g., BAAI/bge-reranker-base). Empty = reranker disabled")
 	flag.Parse()
 
 	// Create server
@@ -98,6 +109,10 @@ func main() {
 		idleTimeout:    *idleTimeout,
 		preferredModel: "nomic-ai/nomic-embed-text-v1.5", // Always prefer text model when idle (for search-heavy workflows)
 		maxBatchTokens: *maxBatchTokens,
+		// Reranker config
+		rerankPort:    *rerankPort,
+		rerankModel:   *rerankModel,
+		rerankBaseURL: fmt.Sprintf("http://localhost:%d", *rerankPort),
 	}
 
 	// Start TEI process
@@ -114,9 +129,25 @@ func main() {
 	}
 	log.Printf("TEI is ready!")
 
+	// Start reranker TEI if model is specified
+	if server.rerankModel != "" {
+		log.Printf("Starting reranker TEI with model: %s", server.rerankModel)
+		if err := server.startRerankTEI(context.Background()); err != nil {
+			log.Fatalf("Failed to start reranker TEI: %v", err)
+		}
+		defer server.stopRerankTEI()
+
+		log.Printf("Waiting for reranker TEI to be ready...")
+		if err := server.waitForRerankTEI(90 * time.Second); err != nil {
+			log.Fatalf("Reranker TEI failed to start: %v", err)
+		}
+		log.Printf("Reranker TEI is ready!")
+	}
+
 	// Setup HTTP server
 	mux := http.NewServeMux()
 	mux.HandleFunc("/v1/embeddings", server.handleEmbeddings)
+	mux.HandleFunc("/rerank", server.handleRerank)
 	mux.HandleFunc("/health", server.handleHealth)
 
 	httpServer := &http.Server{
@@ -372,32 +403,51 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusServiceUnavailable)
 		json.NewEncoder(w).Encode(map[string]interface{}{
-			"status":    "switching",
-			"model":     currentModel,
-			"switching": true,
+			"status":          "switching",
+			"embedding_model": currentModel,
+			"switching":       true,
 		})
 		return
 	}
 
-	// Check if TEI is healthy
+	// Check if embeddings TEI is healthy
+	embeddingsHealthy := false
 	resp, err := s.client.Get(s.teiBaseURL + "/health")
-	if err != nil || resp.StatusCode != http.StatusOK {
+	if err == nil {
+		resp.Body.Close()
+		embeddingsHealthy = resp.StatusCode == http.StatusOK
+	}
+
+	if !embeddingsHealthy {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusServiceUnavailable)
 		json.NewEncoder(w).Encode(map[string]interface{}{
-			"status": "unhealthy",
-			"model":  currentModel,
-			"error":  "TEI is not responding",
+			"status":          "unhealthy",
+			"embedding_model": currentModel,
+			"error":           "TEI is not responding",
 		})
 		return
 	}
-	resp.Body.Close()
+
+	// Build response with reranker status
+	response := map[string]interface{}{
+		"status":          "ok",
+		"embedding_model": currentModel,
+	}
+
+	// Include reranker status if configured
+	if s.rerankModel != "" {
+		rerankHealthy := s.checkRerankHealth()
+		response["reranker"] = map[string]interface{}{
+			"enabled": true,
+			"healthy": rerankHealthy,
+			"model":   s.rerankModel,
+			"port":    s.rerankPort,
+		}
+	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"status": "ok",
-		"model":  currentModel,
-	})
+	json.NewEncoder(w).Encode(response)
 }
 
 // resetIdleTimer resets the idle timer after each request
@@ -438,4 +488,152 @@ func (s *Server) onIdleTimeout() {
 			log.Printf("Idle preload complete: %s ready for next run", preferredModel)
 		}
 	}
+}
+
+// ============================================================================
+// Reranker TEI Management
+// ============================================================================
+
+// startRerankTEI starts the reranker TEI process
+func (s *Server) startRerankTEI(ctx context.Context) error {
+	// Reuse teiBinary - same TEI program, different model
+	s.rerankCmd = exec.CommandContext(ctx, s.teiBinary,
+		"--model-id", s.rerankModel,
+		"--port", fmt.Sprintf("%d", s.rerankPort),
+		"--max-batch-tokens", fmt.Sprintf("%d", s.maxBatchTokens),
+	)
+	s.rerankCmd.Stdout = os.Stdout
+	s.rerankCmd.Stderr = os.Stderr
+
+	if err := s.rerankCmd.Start(); err != nil {
+		return fmt.Errorf("failed to start reranker TEI: %w", err)
+	}
+
+	log.Printf("Reranker TEI started with model %s (PID: %d, port: %d)",
+		s.rerankModel, s.rerankCmd.Process.Pid, s.rerankPort)
+	return nil
+}
+
+// stopRerankTEI gracefully stops the reranker TEI process
+func (s *Server) stopRerankTEI() {
+	if s.rerankCmd == nil || s.rerankCmd.Process == nil {
+		return
+	}
+
+	log.Printf("Stopping reranker TEI process (PID: %d)", s.rerankCmd.Process.Pid)
+
+	// Send SIGTERM for graceful shutdown
+	if err := s.rerankCmd.Process.Signal(syscall.SIGTERM); err != nil {
+		log.Printf("Failed to send SIGTERM to reranker: %v", err)
+		s.rerankCmd.Process.Kill()
+		return
+	}
+
+	// Wait for process to exit (with timeout)
+	done := make(chan error, 1)
+	go func() {
+		done <- s.rerankCmd.Wait()
+	}()
+
+	select {
+	case <-done:
+		log.Printf("Reranker TEI stopped gracefully")
+	case <-time.After(5 * time.Second):
+		log.Printf("Reranker TEI didn't stop in time, killing...")
+		s.rerankCmd.Process.Kill()
+	}
+}
+
+// waitForRerankTEI waits for reranker TEI to be ready
+func (s *Server) waitForRerankTEI(timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		resp, err := s.client.Get(s.rerankBaseURL + "/health")
+		if err == nil {
+			resp.Body.Close()
+			if resp.StatusCode == http.StatusOK {
+				s.rerankHealthy = true
+				return nil
+			}
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+	return fmt.Errorf("reranker TEI did not become ready within %v", timeout)
+}
+
+// checkRerankHealth checks if reranker TEI is healthy
+func (s *Server) checkRerankHealth() bool {
+	if s.rerankModel == "" {
+		return false // Reranker not configured
+	}
+	resp, err := s.client.Get(s.rerankBaseURL + "/health")
+	if err != nil {
+		s.rerankHealthy = false
+		return false
+	}
+	defer resp.Body.Close()
+	s.rerankHealthy = resp.StatusCode == http.StatusOK
+	return s.rerankHealthy
+}
+
+// RerankRequest matches TEI /rerank request format
+type RerankRequest struct {
+	Query      string   `json:"query"`
+	Texts      []string `json:"texts"`
+	RawScores  bool     `json:"raw_scores,omitempty"`
+	ReturnText bool     `json:"return_text,omitempty"`
+}
+
+// RerankResult matches TEI /rerank response format
+type RerankResult struct {
+	Index int     `json:"index"`
+	Score float64 `json:"score"`
+	Text  string  `json:"text,omitempty"`
+}
+
+// handleRerank handles POST /rerank requests by proxying to reranker TEI
+func (s *Server) handleRerank(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Check if reranker is configured
+	if s.rerankModel == "" {
+		http.Error(w, "Reranker not configured. Start tei-wrapper with --rerank-model flag", http.StatusNotFound)
+		return
+	}
+
+	// Check if reranker is healthy
+	if !s.rerankHealthy && !s.checkRerankHealth() {
+		w.Header().Set("Retry-After", "5")
+		http.Error(w, "Reranker TEI is not available", http.StatusServiceUnavailable)
+		return
+	}
+
+	// Read request body
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to read request: %v", err), http.StatusBadRequest)
+		return
+	}
+
+	// Proxy to reranker TEI
+	resp, err := s.client.Post(
+		s.rerankBaseURL+"/rerank",
+		"application/json",
+		bytes.NewReader(body),
+	)
+	if err != nil {
+		log.Printf("Reranker request failed: %v", err)
+		s.rerankHealthy = false
+		http.Error(w, fmt.Sprintf("Reranker request failed: %v", err), http.StatusBadGateway)
+		return
+	}
+	defer resp.Body.Close()
+
+	// Forward response
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(resp.StatusCode)
+	io.Copy(w, resp.Body)
 }
