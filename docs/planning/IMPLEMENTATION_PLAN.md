@@ -13,16 +13,17 @@
 - Integrated into extractor with fallback: `internal/parser/extractor.go:726-798`
 - All query files fixed and compiling successfully
 
-**Phase 3: Language-Specific Extraction** 🔄 **IN PROGRESS** (beads: code_scout-l6s)
-- ✅ All 11 query files now compile successfully (2026-01-18)
-- ✅ Fixed JavaScript, TypeScript, C++, PHP, and Scala query syntax errors
-- ✅ Query loader tests passing for all languages
-- ⏳ Need to migrate Go from specialized extractors to query-based
-- ⏳ Need to validate extraction works correctly for each language
+**Phase 3: Language-Specific Extraction** ✅ **COMPLETE** (beads: code_scout-l6s)
+- ✅ All 11 query files compile successfully
+- ✅ Fixed Go query to prevent type_alias from matching structs/interfaces
+- ✅ Enhanced query executor with Signature, Receiver, DocComment field extraction
+- ✅ Added struct fields and interface methods metadata extraction
+- ✅ All tests passing for all 11 languages
+- ✅ Go migrated to query-based extraction (2026-01-18)
 
-**Phase 4: Cleanup & Deprecation** ⏳ **NOT STARTED** (beads: code_scout-yrm)
+**Phase 4: Cleanup & Deprecation** ⏳ **READY** (beads: code_scout-yrm)
 - Remove deprecated generic extraction code
-- Blocked by Phase 3
+- Unblocked - Phase 3 complete
 
 **Epic:** code_scout-63j - Complete Multi-Language Support Implementation (Phases 2-4)
 
