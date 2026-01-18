@@ -31,11 +31,47 @@
     name: (type_identifier) @interface.name
     type: (interface_type) @interface.body)) @interface.definition
 
-; Type declarations - other type aliases
+; Type declarations - other type aliases (exclude structs and interfaces)
+; These patterns match type aliases but NOT struct_type or interface_type
 (type_declaration
   (type_spec
     name: (type_identifier) @type_alias.name
-    type: (_) @type_alias.type)) @type_alias.definition
+    type: (type_identifier) @type_alias.type)) @type_alias.definition
+
+(type_declaration
+  (type_spec
+    name: (type_identifier) @type_alias.name
+    type: (qualified_type) @type_alias.type)) @type_alias.definition
+
+(type_declaration
+  (type_spec
+    name: (type_identifier) @type_alias.name
+    type: (pointer_type) @type_alias.type)) @type_alias.definition
+
+(type_declaration
+  (type_spec
+    name: (type_identifier) @type_alias.name
+    type: (slice_type) @type_alias.type)) @type_alias.definition
+
+(type_declaration
+  (type_spec
+    name: (type_identifier) @type_alias.name
+    type: (array_type) @type_alias.type)) @type_alias.definition
+
+(type_declaration
+  (type_spec
+    name: (type_identifier) @type_alias.name
+    type: (map_type) @type_alias.type)) @type_alias.definition
+
+(type_declaration
+  (type_spec
+    name: (type_identifier) @type_alias.name
+    type: (channel_type) @type_alias.type)) @type_alias.definition
+
+(type_declaration
+  (type_spec
+    name: (type_identifier) @type_alias.name
+    type: (function_type) @type_alias.type)) @type_alias.definition
 
 ; Package clause
 (package_clause
