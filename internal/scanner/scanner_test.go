@@ -12,13 +12,13 @@ func TestScanCodeFiles_DetectsCodeFiles(t *testing.T) {
 
 	// Create test files
 	files := map[string]string{
-		"main.go":       "package main",
-		"utils.py":      "def hello(): pass",
-		"README.md":     "# README",
-		"docs.txt":      "Documentation",
-		"guide.rst":     "Guide",
-		".hidden.go":    "should be skipped",
-		"ignored.java":  "should be ignored (not supported)",
+		"main.go":      "package main",
+		"utils.py":     "def hello(): pass",
+		"README.md":    "# README",
+		"docs.txt":     "Documentation",
+		"guide.rst":    "Guide",
+		".hidden.go":   "should be skipped",
+		"helper.java":  "public class Helper {}",
 	}
 
 	for name, content := range files {
@@ -46,11 +46,12 @@ func TestScanCodeFiles_DetectsCodeFiles(t *testing.T) {
 
 	// Verify results
 	expected := map[string]string{
-		"main.go":   "go",
-		"utils.py":  "python",
-		"README.md": "markdown",
-		"docs.txt":  "text",
-		"guide.rst": "rst",
+		"main.go":     "go",
+		"utils.py":    "python",
+		"README.md":   "markdown",
+		"docs.txt":    "text",
+		"guide.rst":   "rst",
+		"helper.java": "java",
 	}
 
 	if len(results) != len(expected) {
@@ -123,14 +124,45 @@ func TestLanguageExtensions(t *testing.T) {
 		expected string
 		exists   bool
 	}{
+		// Go
 		{".go", "go", true},
+		// Python
 		{".py", "python", true},
+		// JavaScript
+		{".js", "javascript", true},
+		{".jsx", "javascript", true},
+		{".mjs", "javascript", true},
+		{".cjs", "javascript", true},
+		// TypeScript
+		{".ts", "typescript", true},
+		{".tsx", "typescript", true},
+		// Java
+		{".java", "java", true},
+		// Rust
+		{".rs", "rust", true},
+		// C
+		{".c", "c", true},
+		{".h", "c", true},
+		// C++
+		{".cpp", "cpp", true},
+		{".cc", "cpp", true},
+		{".cxx", "cpp", true},
+		{".hpp", "cpp", true},
+		{".hxx", "cpp", true},
+		// Ruby
+		{".rb", "ruby", true},
+		// PHP
+		{".php", "php", true},
+		// Scala
+		{".scala", "scala", true},
+		// Documentation
 		{".md", "markdown", true},
 		{".txt", "text", true},
 		{".rst", "rst", true},
-		{".java", "", false},
-		{".rs", "", false},
-		{".js", "", false},
+		// Unsupported
+		{".xml", "", false},
+		{".json", "", false},
+		{".yaml", "", false},
 	}
 
 	for _, tt := range tests {

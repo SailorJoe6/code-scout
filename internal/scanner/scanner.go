@@ -102,10 +102,51 @@ func (s *Scanner) shouldIgnore(path string, isDir bool) bool {
 }
 
 // languageExtensions maps file extensions to language names
+// Note: For .h files, we assign "c" here, but DetectLanguage() in the parser
+// will use heuristics to determine if it's actually C or C++ based on content
 var languageExtensions = map[string]string{
-	// Code files
-	".py": "python",
+	// Go
 	".go": "go",
+
+	// Python
+	".py": "python",
+
+	// JavaScript
+	".js":  "javascript",
+	".jsx": "javascript",
+	".mjs": "javascript",
+	".cjs": "javascript",
+
+	// TypeScript
+	".ts":  "typescript",
+	".tsx": "typescript",
+
+	// Java
+	".java": "java",
+
+	// Rust
+	".rs": "rust",
+
+	// C (note: .h files assigned to "c" but will be detected as C or C++ by parser)
+	".c": "c",
+	".h": "c",
+
+	// C++
+	".cpp": "cpp",
+	".cc":  "cpp",
+	".cxx": "cpp",
+	".hpp": "cpp",
+	".hxx": "cpp",
+
+	// Ruby
+	".rb": "ruby",
+
+	// PHP
+	".php": "php",
+
+	// Scala
+	".scala": "scala",
+
 	// Documentation files
 	".md":  "markdown",
 	".txt": "text",
