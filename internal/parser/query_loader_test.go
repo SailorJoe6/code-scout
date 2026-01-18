@@ -19,7 +19,7 @@ func TestQueryCache_LoadQuery(t *testing.T) {
 		// Note: Some query files may have syntax errors because they were written
 		// before being validated against actual tree-sitter grammars.
 		// This is expected - the fallback mechanism will handle these cases.
-		{"Python", LanguagePython, true},      // Has invalid 'async' node type
+		{"Python", LanguagePython, false},     // Fixed - simplified query
 		{"Go", LanguageGo, true},              // May have query errors
 		{"JavaScript", LanguageJavaScript, true}, // Has invalid 'async' node type
 		{"TypeScript", LanguageTypeScript, true}, // Has invalid 'async' node type

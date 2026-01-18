@@ -49,10 +49,26 @@ func (qc *QueryCache) LoadQuery(lang Language, tsLang *sitter.Language) (*sitter
 		return nil, fmt.Errorf("failed to read query file %s: %w", queryPath, err)
 	}
 
+	// Check if tsLang is valid
+	if tsLang == nil {
+		return nil, fmt.Errorf("tree-sitter language is nil for %s", lang.String())
+	}
+
 	// Compile query
-	query, err := sitter.NewQuery(tsLang, string(queryContent))
-	if err != nil {
-		return nil, fmt.Errorf("failed to compile query for %s: %w", lang.String(), err)
+	// Note: NewQuery returns (*Query, *QueryError) not (*Query, error)
+	query, qerr := sitter.NewQuery(tsLang, string(queryContent))
+	if qerr != nil {
+		msg := qerr.Message
+		if msg == "" {
+			msg = "unknown error"
+		}
+		return nil, fmt.Errorf("failed to compile query for %s at row %d, col %d: %s",
+			lang.String(), qerr.Row, qerr.Column, msg)
+	}
+
+	// NewQuery returns nil without error if compilation fails
+	if query == nil {
+		return nil, fmt.Errorf("query compilation returned nil for %s (no error reported)", lang.String())
 	}
 
 	// Cache for future use

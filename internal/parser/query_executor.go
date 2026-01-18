@@ -99,9 +99,13 @@ func (qe *QueryExecutor) processMatch(match *sitter.QueryMatch) *Chunk {
 func (qe *QueryExecutor) determineChunkType(captures map[string]*sitter.Node) (ChunkType, *sitter.Node) {
 	// Check for each supported construct
 	// Priority: more specific types first
+	// Supports both dot notation (method.definition) and underscore notation (method_definition)
 
 	// Methods (before functions, as methods are more specific)
 	if def, ok := captures["method.definition"]; ok {
+		return ChunkTypeMethod, def
+	}
+	if def, ok := captures["method_definition"]; ok {
 		return ChunkTypeMethod, def
 	}
 
@@ -109,10 +113,19 @@ func (qe *QueryExecutor) determineChunkType(captures map[string]*sitter.Node) (C
 	if def, ok := captures["function.definition"]; ok {
 		return ChunkTypeFunction, def
 	}
+	if def, ok := captures["function_definition"]; ok {
+		return ChunkTypeFunction, def
+	}
 	if def, ok := captures["async_function.definition"]; ok {
 		return ChunkTypeFunction, def
 	}
+	if def, ok := captures["async_function_definition"]; ok {
+		return ChunkTypeFunction, def
+	}
 	if def, ok := captures["decorated_function.definition"]; ok {
+		return ChunkTypeFunction, def
+	}
+	if def, ok := captures["decorated_function_definition"]; ok {
 		return ChunkTypeFunction, def
 	}
 
@@ -120,7 +133,13 @@ func (qe *QueryExecutor) determineChunkType(captures map[string]*sitter.Node) (C
 	if def, ok := captures["class.definition"]; ok {
 		return ChunkTypeClass, def
 	}
+	if def, ok := captures["class_definition"]; ok {
+		return ChunkTypeClass, def
+	}
 	if def, ok := captures["decorated_class.definition"]; ok {
+		return ChunkTypeClass, def
+	}
+	if def, ok := captures["decorated_class_definition"]; ok {
 		return ChunkTypeClass, def
 	}
 
@@ -128,9 +147,15 @@ func (qe *QueryExecutor) determineChunkType(captures map[string]*sitter.Node) (C
 	if def, ok := captures["interface.definition"]; ok {
 		return ChunkTypeInterface, def
 	}
+	if def, ok := captures["interface_definition"]; ok {
+		return ChunkTypeInterface, def
+	}
 
 	// Structs
 	if def, ok := captures["struct.definition"]; ok {
+		return ChunkTypeStruct, def
+	}
+	if def, ok := captures["struct_definition"]; ok {
 		return ChunkTypeStruct, def
 	}
 
@@ -138,9 +163,15 @@ func (qe *QueryExecutor) determineChunkType(captures map[string]*sitter.Node) (C
 	if def, ok := captures["enum.definition"]; ok {
 		return ChunkTypeEnum, def
 	}
+	if def, ok := captures["enum_definition"]; ok {
+		return ChunkTypeEnum, def
+	}
 
 	// Traits (Rust, PHP, Scala)
 	if def, ok := captures["trait.definition"]; ok {
+		return ChunkTypeInterface, def
+	}
+	if def, ok := captures["trait_definition"]; ok {
 		return ChunkTypeInterface, def
 	}
 
@@ -148,7 +179,13 @@ func (qe *QueryExecutor) determineChunkType(captures map[string]*sitter.Node) (C
 	if def, ok := captures["impl.definition"]; ok {
 		return ChunkTypeImpl, def
 	}
+	if def, ok := captures["impl_definition"]; ok {
+		return ChunkTypeImpl, def
+	}
 	if def, ok := captures["trait_impl.definition"]; ok {
+		return ChunkTypeImpl, def
+	}
+	if def, ok := captures["trait_impl_definition"]; ok {
 		return ChunkTypeImpl, def
 	}
 
@@ -156,14 +193,23 @@ func (qe *QueryExecutor) determineChunkType(captures map[string]*sitter.Node) (C
 	if def, ok := captures["module.definition"]; ok {
 		return ChunkTypeModule, def
 	}
+	if def, ok := captures["module_definition"]; ok {
+		return ChunkTypeModule, def
+	}
 
 	// Namespaces (C++, PHP)
 	if def, ok := captures["namespace.definition"]; ok {
 		return ChunkTypeModule, def
 	}
+	if def, ok := captures["namespace_definition"]; ok {
+		return ChunkTypeModule, def
+	}
 
 	// Type aliases
 	if def, ok := captures["type_alias.definition"]; ok {
+		return ChunkTypeType, def
+	}
+	if def, ok := captures["type_alias_definition"]; ok {
 		return ChunkTypeType, def
 	}
 
@@ -173,30 +219,33 @@ func (qe *QueryExecutor) determineChunkType(captures map[string]*sitter.Node) (C
 
 // extractName extracts the name from captures
 func (qe *QueryExecutor) extractName(captures map[string]*sitter.Node, chunkType ChunkType) string {
-	// Try type-specific name patterns first
+	// Try type-specific name patterns first (both dot and underscore notation)
 	typePrefix := chunkTypeToPrefix(chunkType)
 	if typePrefix != "" {
 		if nameNode, ok := captures[typePrefix+".name"]; ok {
 			return nameNode.Utf8Text(qe.sourceCode)
 		}
+		if nameNode, ok := captures[typePrefix+"_name"]; ok {
+			return nameNode.Utf8Text(qe.sourceCode)
+		}
 	}
 
-	// Try common name patterns
+	// Try common name patterns (both notations)
 	namePatterns := []string{
-		"function.name",
-		"async_function.name",
-		"decorated_function.name",
-		"method.name",
-		"class.name",
-		"decorated_class.name",
-		"interface.name",
-		"struct.name",
-		"enum.name",
-		"trait.name",
-		"impl.name",
-		"module.name",
-		"namespace.name",
-		"type_alias.name",
+		"function.name", "function_name",
+		"async_function.name", "async_function_name",
+		"decorated_function.name", "decorated_function_name",
+		"method.name", "method_name",
+		"class.name", "class_name",
+		"decorated_class.name", "decorated_class_name",
+		"interface.name", "interface_name",
+		"struct.name", "struct_name",
+		"enum.name", "enum_name",
+		"trait.name", "trait_name",
+		"impl.name", "impl_name",
+		"module.name", "module_name",
+		"namespace.name", "namespace_name",
+		"type_alias.name", "type_alias_name",
 	}
 
 	for _, pattern := range namePatterns {
@@ -212,15 +261,18 @@ func (qe *QueryExecutor) extractName(captures map[string]*sitter.Node, chunkType
 func (qe *QueryExecutor) extractMetadata(captures map[string]*sitter.Node, chunkType ChunkType) map[string]string {
 	metadata := make(map[string]string)
 
-	// Extract parameters
-	if params, ok := captures["function.parameters"]; ok {
-		metadata["parameters"] = params.Utf8Text(qe.sourceCode)
-	} else if params, ok := captures["async_function.parameters"]; ok {
-		metadata["parameters"] = params.Utf8Text(qe.sourceCode)
-	} else if params, ok := captures["decorated_function.parameters"]; ok {
-		metadata["parameters"] = params.Utf8Text(qe.sourceCode)
-	} else if params, ok := captures["method.parameters"]; ok {
-		metadata["parameters"] = params.Utf8Text(qe.sourceCode)
+	// Extract parameters (both notations)
+	paramPatterns := []string{
+		"function.parameters", "function_parameters",
+		"async_function.parameters", "async_function_parameters",
+		"decorated_function.parameters", "decorated_function_parameters",
+		"method.parameters", "method_parameters",
+	}
+	for _, pattern := range paramPatterns {
+		if params, ok := captures[pattern]; ok {
+			metadata["parameters"] = params.Utf8Text(qe.sourceCode)
+			break
+		}
 	}
 
 	// Extract decorators (Python, Java)
