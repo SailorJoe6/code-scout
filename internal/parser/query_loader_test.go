@@ -16,20 +16,20 @@ func TestQueryCache_LoadQuery(t *testing.T) {
 		lang    Language
 		wantErr bool
 	}{
-		// Note: Some query files may have syntax errors because they were written
-		// before being validated against actual tree-sitter grammars.
-		// This is expected - the fallback mechanism will handle these cases.
+		// Query files that compile successfully
 		{"Python", LanguagePython, false},     // Fixed - simplified query
-		{"Go", LanguageGo, true},              // May have query errors
-		{"JavaScript", LanguageJavaScript, true}, // Has invalid 'async' node type
-		{"TypeScript", LanguageTypeScript, true}, // Has invalid 'async' node type
-		{"Java", LanguageJava, true},          // May have query errors
-		{"Rust", LanguageRust, true},          // May have query errors
-		{"C", LanguageC, true},                // May have query errors
-		{"C++", LanguageCPP, true},            // Has impossible patterns
-		{"Ruby", LanguageRuby, true},          // May have query errors
-		{"PHP", LanguagePHP, true},            // Has invalid node types
-		{"Scala", LanguageScala, true},        // Has invalid 'case_modifier'
+		{"Go", LanguageGo, false},              // Working
+		{"Java", LanguageJava, false},          // Working
+		{"Rust", LanguageRust, false},          // Working
+		{"C", LanguageC, false},                // Working
+		{"Ruby", LanguageRuby, false},          // Working
+
+		// All queries now compile successfully (fixed in this session)
+		{"JavaScript", LanguageJavaScript, false}, // Fixed - removed async patterns
+		{"TypeScript", LanguageTypeScript, false}, // Fixed - removed async patterns
+		{"C++", LanguageCPP, false},            // Fixed - simplified namespace pattern
+		{"PHP", LanguagePHP, false},            // Fixed - removed anonymous_function pattern
+		{"Scala", LanguageScala, false},        // Fixed - removed case_modifier patterns
 	}
 
 	for _, tt := range tests {

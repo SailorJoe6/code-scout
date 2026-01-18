@@ -22,17 +22,9 @@
   name: (identifier) @trait.name
   body: (template_body) @trait.body) @trait.definition
 
-; Case class definitions
-(class_definition
-  (case_modifier)
-  name: (identifier) @case_class.name
-  body: (template_body)? @case_class.body) @case_class.definition
-
-; Case object definitions
-(object_definition
-  (case_modifier)
-  name: (identifier) @case_object.name
-  body: (template_body)? @case_object.body) @case_object.definition
+; Case class and case object definitions
+; Note: Simplified - case classes are captured by the regular class_definition pattern above
+; The 'case' keyword is part of the class definition content
 
 ; Type alias definitions
 (type_definition

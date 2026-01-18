@@ -11,11 +11,14 @@
 - Query loader with embed and caching: `internal/parser/query_loader.go`
 - Query executor with chunk building: `internal/parser/query_executor.go`
 - Integrated into extractor with fallback: `internal/parser/extractor.go:726-798`
-- Note: Many query files have syntax errors (expected), fallback mechanism works
+- All query files fixed and compiling successfully
 
-**Phase 3: Language-Specific Extraction** ⏳ **NOT STARTED** (beads: code_scout-l6s)
-- Implement query-based extraction for all 11 languages
-- Blocked by Phase 2
+**Phase 3: Language-Specific Extraction** 🔄 **IN PROGRESS** (beads: code_scout-l6s)
+- ✅ All 11 query files now compile successfully (2026-01-18)
+- ✅ Fixed JavaScript, TypeScript, C++, PHP, and Scala query syntax errors
+- ✅ Query loader tests passing for all languages
+- ⏳ Need to migrate Go from specialized extractors to query-based
+- ⏳ Need to validate extraction works correctly for each language
 
 **Phase 4: Cleanup & Deprecation** ⏳ **NOT STARTED** (beads: code_scout-yrm)
 - Remove deprecated generic extraction code

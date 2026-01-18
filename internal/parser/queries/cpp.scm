@@ -29,8 +29,8 @@
   body: (enumerator_list) @enum.body) @enum.definition
 
 ; Namespace definitions
+; Note: Simplified to avoid tree-sitter grammar compatibility issues
 (namespace_definition
-  name: (identifier) @namespace.name
   body: (declaration_list) @namespace.body) @namespace.definition
 
 ; Template declarations (function templates)

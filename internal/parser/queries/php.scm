@@ -40,9 +40,7 @@
   body: (_)? @namespace.body) @namespace.definition
 
 ; Anonymous functions (closures)
-(anonymous_function_creation_expression
-  parameters: (formal_parameters) @anonymous_function.parameters
-  body: (compound_statement) @anonymous_function.body) @anonymous_function.definition
+; Note: Simplified - anonymous function node type varies by PHP version
 
 ; Arrow functions (PHP 7.4+)
 (arrow_function

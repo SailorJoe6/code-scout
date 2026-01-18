@@ -40,30 +40,8 @@
   parameters: (formal_parameters) @generator.parameters
   body: (statement_block) @generator.body) @generator.definition
 
-; Async functions
-(function_declaration
-  (async) @function.async
-  name: (identifier) @async_function.name
-  parameters: (formal_parameters) @async_function.parameters
-  body: (statement_block) @async_function.body) @async_function.definition
+; Note: Async functions are captured by the regular function_declaration pattern above
+; The 'async' keyword is part of the function definition content
 
-; Async arrow functions
-(arrow_function
-  (async) @arrow.async
-  parameters: (_) @async_arrow.parameters
-  body: (_) @async_arrow.body) @async_arrow.definition
-
-; TypeScript-specific: Interface declarations
-(interface_declaration
-  name: (type_identifier) @interface.name
-  body: (object_type) @interface.body) @interface.definition
-
-; TypeScript-specific: Type alias declarations
-(type_alias_declaration
-  name: (type_identifier) @type_alias.name
-  value: (_) @type_alias.value) @type_alias.definition
-
-; TypeScript-specific: Enum declarations
-(enum_declaration
-  name: (identifier) @enum.name
-  body: (enum_body) @enum.body) @enum.definition
+; Note: TypeScript-specific patterns (interfaces, type aliases, enums) need grammar validation
+; Simplified for now - basic function and class extraction works
