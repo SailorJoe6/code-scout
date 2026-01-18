@@ -19,8 +19,9 @@ import (
 
 // Parser wraps Tree-sitter functionality for parsing source code
 type Parser struct {
-	parser   *sitter.Parser
-	language Language
+	parser     *sitter.Parser
+	language   Language
+	tsLanguage *sitter.Language
 }
 
 // NewParser creates a new parser configured for the specified language
@@ -61,8 +62,9 @@ func NewParser(lang Language) (*Parser, error) {
 	}
 
 	return &Parser{
-		parser:   parser,
-		language: lang,
+		parser:     parser,
+		language:   lang,
+		tsLanguage: tsLang,
 	}, nil
 }
 
@@ -75,6 +77,11 @@ func NewGoParser() (*Parser, error) {
 // Language returns the language this parser is configured for
 func (p *Parser) Language() Language {
 	return p.language
+}
+
+// TSLanguage returns the tree-sitter language instance
+func (p *Parser) TSLanguage() *sitter.Language {
+	return p.tsLanguage
 }
 
 // Parse parses source code and returns the syntax tree

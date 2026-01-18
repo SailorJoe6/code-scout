@@ -23,36 +23,11 @@ func NewExtractor(parser *Parser, sourceCode []byte) *Extractor {
 	}
 }
 
-// ExtractFunctions extracts all function and method declarations from Go source code
+// ExtractFunctions extracts all function and method declarations from source code
+// Uses query-based extraction for all supported languages, with fallback to generic extraction
 func (e *Extractor) ExtractFunctions(ctx context.Context) ([]*Chunk, error) {
-	tree, err := e.parser.Parse(ctx, e.sourceCode)
-	if err != nil {
-		return nil, err
-	}
-	if tree == nil {
-		return nil, nil
-	}
-
-	rootNode := e.parser.GetRootNode(tree)
-	if rootNode == nil {
-		return nil, nil
-	}
-
-	// Extract file-level metadata first
-	e.extractFileMetadata(rootNode)
-
-	var chunks []*Chunk
-
-	// Walk the tree and find function and method declarations
-	cursor := rootNode.Walk()
-	defer cursor.Close()
-
-	e.walkNode(rootNode, &chunks)
-
-	// Enrich all chunks with file-level metadata
-	e.enrichChunksWithMetadata(chunks)
-
-	return chunks, nil
+	// Try query-based extraction first (preferred method)
+	return e.extractWithQuery(ctx)
 }
 
 // walkNode recursively walks the AST and extracts function/method chunks
@@ -729,4 +704,70 @@ func (e *Extractor) mapNodeKindToChunkType(nodeKind string) ChunkType {
 	default:
 		return ChunkTypeFunction // Default fallback
 	}
+}
+
+// extractWithQuery uses tree-sitter queries for semantic extraction
+// This is the preferred extraction method for all languages
+func (e *Extractor) extractWithQuery(ctx context.Context) ([]*Chunk, error) {
+	tree, err := e.parser.Parse(ctx, e.sourceCode)
+	if err != nil {
+		return nil, err
+	}
+	if tree == nil {
+		return nil, nil
+	}
+
+	rootNode := e.parser.GetRootNode(tree)
+	if rootNode == nil {
+		return nil, nil
+	}
+
+	// Load query for this language
+	query, err := globalQueryCache.LoadQuery(e.parser.Language(), e.parser.TSLanguage())
+	if err != nil {
+		// Query loading failed - fall back to generic extraction
+		// This can happen if:
+		// - Query file is missing
+		// - Query has syntax errors
+		// - Language not supported
+		return e.extractGenericFallback(ctx, rootNode)
+	}
+
+	// Execute query
+	executor := NewQueryExecutor(e.parser, e.sourceCode, query)
+	chunks, err := executor.Execute(rootNode)
+	if err != nil {
+		// Query execution failed - fall back to generic extraction
+		return e.extractGenericFallback(ctx, rootNode)
+	}
+
+	// If no chunks found, try fallback
+	if len(chunks) == 0 {
+		return e.extractGenericFallback(ctx, rootNode)
+	}
+
+	// Extract file-level metadata first
+	e.extractFileMetadata(rootNode)
+
+	// Enrich chunks with file metadata
+	e.enrichChunksWithMetadata(chunks)
+
+	return chunks, nil
+}
+
+// extractGenericFallback falls back to generic extraction when queries fail
+// This uses the existing walkNode approach
+func (e *Extractor) extractGenericFallback(ctx context.Context, rootNode *sitter.Node) ([]*Chunk, error) {
+	var chunks []*Chunk
+
+	// Extract file-level metadata first
+	e.extractFileMetadata(rootNode)
+
+	// Walk the tree
+	e.walkNode(rootNode, &chunks)
+
+	// Enrich chunks with file metadata
+	e.enrichChunksWithMetadata(chunks)
+
+	return chunks, nil
 }

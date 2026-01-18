@@ -14,6 +14,7 @@ const (
 	ChunkTypeEnum      ChunkType = "enum"
 	ChunkTypeImpl      ChunkType = "impl"
 	ChunkTypeModule    ChunkType = "module"
+	ChunkTypeType      ChunkType = "type"
 )
 
 // Chunk represents a semantic code chunk extracted from source code

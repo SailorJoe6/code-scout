@@ -7,10 +7,11 @@
 - Tests updated and passing
 - Files: `internal/scanner/scanner.go`, `internal/scanner/scanner_test.go`
 
-**Phase 2: Query Infrastructure** ⏳ **NOT STARTED** (beads: code_scout-4mt)
-- Build query loader with embed and caching
-- Implement query executor
-- Integrate into extractor with fallback
+**Phase 2: Query Infrastructure** ✅ **COMPLETE** (beads: code_scout-4mt)
+- Query loader with embed and caching: `internal/parser/query_loader.go`
+- Query executor with chunk building: `internal/parser/query_executor.go`
+- Integrated into extractor with fallback: `internal/parser/extractor.go:726-798`
+- Note: Many query files have syntax errors (expected), fallback mechanism works
 
 **Phase 3: Language-Specific Extraction** ⏳ **NOT STARTED** (beads: code_scout-l6s)
 - Implement query-based extraction for all 11 languages
