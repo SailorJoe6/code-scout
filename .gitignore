@@ -38,3 +38,4 @@ dist/
 
 # Local Go build cache when tests run with custom GOCACHE path
 .gocache/
+.code-scout.json.dgx_spark.ollama

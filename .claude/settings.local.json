@@ -55,7 +55,13 @@
       "Bash(else echo \"No coverage file found\")",
       "Bash(fi)",
       "Bash(sort:*)",
-      "Bash(wc:*)"
+      "Bash(wc:*)",
+      "Bash(TARGETS=\"darwin_arm64\" ./build.sh:*)",
+      "Bash(./dist/code-scout-darwin_arm64/code-scout.bin index:*)",
+      "Bash(make build:*)",
+      "Bash(./dist/code-scout-darwin_arm64/code-scout.bin search:*)",
+      "Bash(pkill:*)",
+      "Bash(git pull:*)"
     ],
     "deny": [],
     "ask": []

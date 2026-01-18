@@ -30,35 +30,24 @@ Choose your installation method based on your platform and hardware:
 
 ```bash
 # Install TEI via Homebrew
-brew install huggingface/tap/text-embeddings-inference
+brew install text-embeddings-inference
 
 # Verify installation
 text-embeddings-router --version
 ```
 
-**This installs:**
-- TEI binary with Metal backend
-- PyTorch built against Metal
-- All runtime dependencies
-
 **Why this is best for Mac:**
-- ✅ Fastest and cleanest installation
 - ✅ Native Metal GPU acceleration
 - ✅ Automatic updates via `brew upgrade`
+- ✅ Cleanest installation
 - ✅ No Docker overhead
 - ✅ Model switching: **2-5 seconds**
 
-#### Option 2: Pre-built Binary
+**Note:** Current version is 1.8.3 (as of Jan 2026)
 
-```bash
-# Download for Apple Silicon
-curl -LO https://github.com/huggingface/text-embeddings-inference/releases/latest/download/text-embeddings-router-aarch64-apple-darwin
-chmod +x text-embeddings-router-aarch64-apple-darwin
-sudo mv text-embeddings-router-aarch64-apple-darwin /usr/local/bin/text-embeddings-router
+#### Option 2: Build from Source
 
-# Verify
-text-embeddings-router --version
-```
+See "Build from Source (Advanced)" section below for instructions.
 
 #### Example Usage
 
@@ -206,6 +195,8 @@ Code Scout uses a **two-model architecture** for optimal results:
 
 **Total memory footprint:** ~524MB for both models running simultaneously
 
+**Note:** The larger `nomic-ai/nomic-embed-code` model is not currently supported by TEI. It requires a powerful GPU and lots of RAM in Ollama; for TEI or lower-power machines, prefer `nomic-ai/CodeRankEmbed`.
+
 ## Running TEI with Code Scout
 
 Code Scout needs different embedding models for code vs documentation. There are two approaches:
@@ -252,7 +243,7 @@ If your workflow processes code embeddings first, then text embeddings sequentia
 
 ```bash
 # Process code embeddings
-text-embeddings-router --model-id nomic-ai/nomic-embed-code
+text-embeddings-router --model-id nomic-ai/CodeRankEmbed
 
 # Stop when done (Ctrl+C or pkill)
 pkill text-embeddings-router
@@ -560,7 +551,7 @@ lsof -ti:8001 | xargs kill
 | CodeRankEmbed | 137M | 77.9 | 521MB |
 | nomic-embed-code | 7B | ~83-85* | 26GB |
 
-*Estimated based on SOTA claim
+*Estimated based on SOTA claim. `nomic-embed-code` is Ollama-only and not currently supported by TEI.
 
 **Trade-off:** CodeRankEmbed sacrifices ~5-7% accuracy for 50x smaller size and ability to run two models simultaneously on M2.
 

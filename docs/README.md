@@ -6,33 +6,13 @@ Welcome to the Code Scout documentation. This directory contains comprehensive d
 
 ### Design Documentation
 
-The [design/](design/) folder contains detailed technical documentation about Code Scout's architecture and implementation:
+The [design](design/) folder contains detailed technical documentation about Code Scout's architecture and implementation:
 
-- **[Design Overview](design/README.md)** - Index of all design documents
-- **[Architecture](design/architecture.md)** - High-level system architecture and design principles
-- **[Data Flow](design/data-flow.md)** - How data flows from source code to search results
-- **[Components](design/components.md)** - Component responsibilities and interfaces
-- **[Semantic Chunking](design/semantic-chunking.md)** - Tree-sitter AST extraction details
-- **[Embedding Strategy](design/embedding-strategy.md)** - Embedding generation and deduplication
-- **[Vector Storage](design/vector-storage.md)** - LanceDB schema and query patterns
-- **[CLI Interface](design/cli-interface.md)** - Command-line interface and workflows
-- **[Extension Points](design/extension-points.md)** - How to extend Code Scout
-- **[Language Detection](design/language-detection.md)** - File extension mapping and heuristics
+Read the [design index](design/README.md) now to better understand that folder's contents.  
 
-## Quick Navigation
+## Developer Guids
 
-**For AI Agents:**
-- Start with [Architecture](design/architecture.md) for system overview
-- Read [Data Flow](design/data-flow.md) to understand the indexing and search pipeline
-- See [Components](design/components.md) for detailed component interactions
-
-**For Developers:**
-- See [DEVELOPERS.md](../DEVELOPERS.md) for build setup and requirements
-- See [Extension Points](design/extension-points.md) for adding new languages or features
-
-**For Users:**
-- See [README.md](../README.md) for installation and usage
-- See [CLI Interface](design/cli-interface.md) for command examples
+The [guides](guides/) folder contains detailed instructions for developers on how to set up code-scout for local developement and use.  Read the [guide index](guides/README.md) now to better understand that folder's contents.  
 
 ## Documentation Philosophy
 

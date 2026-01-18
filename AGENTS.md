@@ -11,6 +11,8 @@ Run `bd prime` for workflow context, or install hooks (`bd hooks install`) for a
 
 For full workflow details: `bd prime`
 
+Note that we often work both with specification documents and beads.  In all cases, keep in mind our golden rule of thumb for documentation: **Don't Repeat Yourself**.  Specs are for high level design and plans, beads issues are for current focus, status and tasks.  Keep both detailed but concise.  Avoid fluff and repetition. 
+
 ## Before You Start Developing
 
 **Quick check**: If you need to build the project, you MUST have the LanceDB native libraries downloaded and use our Make files for testing.

@@ -20,7 +20,7 @@ const (
 	DefaultDBDir = ".code-scout"
 	// DefaultTableName is the default table name for code chunks
 	DefaultTableName = "code_chunks"
-	// VectorDimension is the embedding dimension (nomic-embed-code uses 3584)
+	// VectorDimension is the storage dimension (set for nomic-embed-code at 3584; smaller vectors are padded).
 	VectorDimension = 3584
 )
 

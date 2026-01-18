@@ -68,7 +68,7 @@ ollama pull nomic-embed-text
 ollama list
 ```
 
-**Note:** Ollama uses `nomic-embed-text` for both code and documentation embeddings. While not optimal (the specialized `CodeRankEmbed` performs better on code), it's simpler and works well enough for most use cases.
+**Note:** Ollama uses `nomic-embed-text` for both code and documentation embeddings. While not optimal (the specialized `CodeRankEmbed` performs better on code), it's simpler and works well enough for most use cases. The larger `nomic-embed-code` model has better accuracy but requires a powerful GPU and lots of RAM in Ollama and is not currently supported by TEI.
 
 **Model sizes:**
 - `nomic-embed-text:latest` - ~274MB download
@@ -77,16 +77,9 @@ ollama list
 
 Ollama runs on `http://localhost:11434` by default, which is Code Scout's default endpoint.
 
-### Option 1: Use Defaults (Recommended)
+### Required: Set Models for Ollama
 
-No configuration needed! Code Scout's defaults match Ollama:
-
-```bash
-# No config file needed, just run:
-./code-scout index --workers 2 --batch-size 2
-```
-
-### Option 2: Explicit Configuration
+Code Scout defaults target TEI models, so configure Ollama explicitly.
 
 Create `.code-scout.json` in your repo or `~/.code-scout/config.json` globally:
 
@@ -99,6 +92,7 @@ Create `.code-scout.json` in your repo or `~/.code-scout/config.json` globally:
 ```
 
 **Note:** Using the same model for both passes is fine. Ollama will automatically switch between requests.
+If you created custom Ollama models (`code-scout-code` / `code-scout-text`), use those instead.
 
 ## Critical: Reduce Concurrency
 

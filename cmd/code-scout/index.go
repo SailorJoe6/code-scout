@@ -200,7 +200,7 @@ func performIndexing(cwd string, numWorkers int, batchSize int, verbose bool) er
 
 	// TWO-PASS EMBEDDING GENERATION
 
-	// PASS 1: Code chunks with code-scout-code model
+	// PASS 1: Code chunks with code model
 	if len(codeChunks) > 0 {
 		if verbose {
 			fmt.Println("\nPass 1: Generating code embeddings...")
@@ -218,7 +218,7 @@ func performIndexing(cwd string, numWorkers int, batchSize int, verbose bool) er
 		}
 	}
 
-	// PASS 2: Docs chunks with code-scout-text model
+	// PASS 2: Docs chunks with text model
 	if len(docsChunks) > 0 {
 		if verbose {
 			fmt.Println("\nPass 2: Generating documentation embeddings...")
@@ -230,9 +230,8 @@ func performIndexing(cwd string, numWorkers int, batchSize int, verbose bool) er
 			return fmt.Errorf("failed to generate docs embeddings: %w", err)
 		}
 
-		// Pad docs embeddings to match code embedding dimensions (3584)
-		// nomic-embed-text produces 768-dim vectors, pad with zeros
-		const targetDim = 3584
+		// Pad docs embeddings to match the vector dimension.
+		targetDim := storage.VectorDimension
 		for i, embedding := range docsEmbeddings {
 			if len(embedding) < targetDim {
 				padded := make([]float64, targetDim)
