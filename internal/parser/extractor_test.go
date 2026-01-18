@@ -892,19 +892,6 @@ func (f *FileReader) Close() error {
 
 // TestExtractorEdgeCases tests helper function edge cases for coverage
 func TestExtractorEdgeCases(t *testing.T) {
-	t.Run("extractMethodSpecName with nil node", func(t *testing.T) {
-		parser, err := NewGoParser()
-		if err != nil {
-			t.Fatalf("NewGoParser failed: %v", err)
-		}
-		extractor := NewExtractor(parser, []byte("package main"))
-		// Call with nil node - should return empty string
-		result := extractor.extractMethodSpecName(nil)
-		if result != "" {
-			t.Errorf("Expected empty string for nil node, got %q", result)
-		}
-	})
-
 	t.Run("extractPackageName with nil node", func(t *testing.T) {
 		parser, err := NewGoParser()
 		if err != nil {

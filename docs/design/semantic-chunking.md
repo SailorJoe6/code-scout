@@ -19,10 +19,12 @@ Semantic chunking is how Code Scout turns raw source files into semantically mea
    - TypeScript reuses the JavaScript grammar with TSX support enabled.
 
 4. **Extraction** – `internal/parser/extractor.go`
-   - `Extractor.ExtractFunctions(ctx)` parses the file, caches package/import metadata, and walks the AST.
-   - Go keeps specialized extractors (`extractFunction`, `extractMethod`, `extractTypes`) to preserve receivers, signatures, and field metadata.
-   - All other languages share `extractGenericNode`, which maps tree-sitter node kinds to Code Scout chunk types through `mapNodeKindToChunkType`.
-   - Doc comments, receivers, signatures, imports, packages, and docstrings are added to `Chunk.Metadata` so embeddings capture intent.
+   - `Extractor.ExtractFunctions(ctx)` uses query-based extraction for all 11 languages via `extractWithQuery`.
+   - Tree-sitter query files (`internal/parser/queries/*.scm`) define language-specific patterns for extracting constructs.
+   - `query_loader.go` embeds and caches compiled queries per language.
+   - `query_executor.go` executes queries against the AST and builds chunks from captures.
+   - Captures include names, parameters, signatures, doc comments, receivers, and other language-specific metadata.
+   - If query loading/execution fails, falls back to minimal extraction via `extractGenericFallback`.
 
 5. **Chunk normalization**
    - `SemanticChunker` wraps parser chunks into `chunker.Chunk` instances (UUID, file path, line span, chunk type, metadata, embedding type).
@@ -48,29 +50,43 @@ Markdown, reStructuredText, and plain text files never run through tree-sitter. 
 | PHP         | `tree-sitter-php`                                  | `internal/parser/queries/php.scm`        | functions, classes, methods, interfaces, traits, enums |
 | Scala       | `tree-sitter-scala`                                | `internal/parser/queries/scala.scm`      | functions, classes, objects, traits, case classes |
 
-Each `.scm` file lists node patterns we care about per language. `extractGenericNode` keeps the implementation compact by translating these node types into Code Scout chunk types.
+Each `.scm` file defines tree-sitter query patterns that capture language-specific constructs. Query executor processes captures to build chunks with precise metadata extraction.
 
 ## Metadata Captured Per Chunk
 
 - **Structural context**: chunk type, name, file path, start/end lines.
-- **Language**: `chunk.Language` plus `Metadata["language"]` (currently always `"go"` for Go chunks, generic importer does not overwrite non-Go languages).
-- **Doc comments**: attached for any node preceded by documentation comments (Go) or docstring nodes (Python, PHP, Ruby).
-- **Signatures and receivers**: stored for Go functions/methods; generic extractor adds whatever identifier or name nodes exist.
-- **Package/imports**: Go-specific metadata extracted before traversal via `extractFileMetadata`.
+- **Language**: `chunk.Language` plus `Metadata["language"]` for all languages.
+- **Doc comments**: extracted via query captures for all languages that support them.
+- **Signatures**: function/method parameters and return types captured from query patterns.
+- **Receivers**: method receiver types (Go, C++, PHP, etc.) captured when present.
+- **Package/imports**: extracted before query execution via `extractFileMetadata`.
+- **Fields**: struct fields and interface methods stored in metadata for reference types.
 - **Heading context**: provided by the Markdown chunker so docs preserve navigation cues.
-- **EmbeddingType**: drives whether `code-scout-code` or `code-scout-text` embeddings are generated.
+- **EmbeddingType**: drives whether code or text embeddings are generated.
 
-## Language-specific Notes
+## Query-Based Extraction Architecture
 
-- **Go** – still the richest metadata path. `extractFunction`, `extractMethod`, and `extractTypes` in `internal/parser/extractor.go` capture receivers, field lists, imports, and package names.
-- **Python** – `function_definition`, `class_definition`, and `decorated_definition` nodes map to functions/classes. Docstrings remain part of the chunk body so embeddings can learn semantics.
-- **JavaScript / TypeScript** – both share the same parser. Arrow functions, generator functions, and class components map to `function` or `method` chunk types while JSX/TSX syntax passes through untouched because tree-sitter scopes it.
-- **Java** – classes, interfaces, enums, records, constructors, and methods are emitted; nested types become individual chunks so embeddings understand inner classes.
-- **Rust** – `function_item`, `impl_item`, `trait_item`, `struct_item`, and `enum_item` help represent inherent impls and trait impls separately.
-- **C / C++** – heuristics decide which parser to use. Structs, enums, classes, namespaces, and free functions become chunks even when located in headers.
-- **Ruby** – class/module nesting plus singleton methods are preserved by `ruby.scm` so DSL-heavy code (e.g., Rails) still chunks around method boundaries.
-- **PHP** – functions, methods, classes, interfaces, traits, and enums are supported; doc comments and attributes remain in `Chunk.Code`.
-- **Scala** – `function_definition`, `class_definition`, `trait_definition`, and `object_definition` nodes emit chunks so both OO and functional constructs are indexed.
+All 11 languages use unified query-based extraction:
+
+- **Query files** (`internal/parser/queries/*.scm`) define patterns using tree-sitter query syntax
+- **Query loader** (`query_loader.go`) embeds query files at compile time and caches compiled queries per language
+- **Query executor** (`query_executor.go`) matches queries against AST and builds chunks from captures
+- **Fallback** (`extractGenericFallback`) returns empty chunks if query loading/execution fails
+
+### Language-Specific Query Patterns
+
+- **Go** – Functions, methods (with receivers), structs (with fields), interfaces (with method signatures), constants, variables
+- **Python** – Functions, async functions, classes, methods, decorated definitions, docstrings
+- **JavaScript/TypeScript** – Functions, arrow functions, classes, methods, generators, async functions, interfaces, type aliases, enums
+- **Java** – Classes, interfaces, methods, constructors, enums, records, annotations
+- **Rust** – Functions, structs, enums, traits, impls, trait impls, modules, constants, statics, type aliases
+- **C** – Functions, structs, unions, enums, typedefs
+- **C++** – Functions, classes, methods, constructors, destructors, operators, namespaces, templates
+- **Ruby** – Methods, singleton methods, classes, modules
+- **PHP** – Functions, classes, methods, interfaces, traits, enums, namespaces
+- **Scala** – Functions, classes, objects, traits, case classes
+
+Query captures extract names, parameters, signatures, doc comments, receivers, and other language-specific metadata automatically.
 
 ## Testing Coverage
 
