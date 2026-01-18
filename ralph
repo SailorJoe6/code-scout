@@ -1,0 +1,51 @@
+#!/usr/bin/env bash
+
+ERROR_LOG="ralph-error.log"
+OUT_LOG="ralph-output.log"
+UNATTENDED=0
+PASS=0
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -u|--unattended)
+      UNATTENDED=1
+      shift
+      ;;
+    *)
+      echo "Usage: $0 [-u|--unattended]"
+      exit 2
+      ;;
+  esac
+done
+
+while :; do
+  PASS=$((PASS + 1))
+  PROMPT=".claude/commands/design.md"
+  if [[ -f docs/planning/SPECIFICATION.md && -f docs/planning/IMPLEMENTATION_PLAN.md ]]; then
+    PROMPT=".claude/commands/execute.md"
+  elif [[ -f docs/planning/SPECIFICATION.md ]]; then
+    PROMPT=".claude/commands/plan.md"
+  elif [[ -f docs/planning/IMPLEMENTATION_PLAN.md ]]; then
+    echo "Error: docs/planning/IMPLEMENTATION_PLAN.md exists but docs/planning/SPECIFICATION.md is missing."
+    exit 1
+  fi
+
+  # Only run unattended during execution; design/plan require user input!
+  if [[ "$PROMPT" == ".claude/commands/execute.md" && $UNATTENDED -eq 1 ]]; then
+    {
+      printf 'Pass %d:\n' "$PASS"
+      cat "$PROMPT" | claude -p --dangerously-skip-permissions
+    } >> "$OUT_LOG" 2> "$ERROR_LOG"
+  else
+    cat "$PROMPT" | claude 2> "$ERROR_LOG"
+  fi
+  status=$?
+  if [[ $status -eq 130 ]]; then
+    exit 0
+  fi
+
+  if [[ $status -ne 0 ]]; then
+    echo "Claude exited with status $status"
+    cat "$ERROR_LOG"
+  fi
+done
