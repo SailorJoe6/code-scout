@@ -600,6 +600,7 @@ type RerankRequest struct {
 	Texts      []string `json:"texts"`
 	RawScores  bool     `json:"raw_scores,omitempty"`
 	ReturnText bool     `json:"return_text,omitempty"`
+	Model      string   `json:"model"` // Model ID for dynamic loading
 }
 
 // RerankResult matches TEI /rerank response format

@@ -341,7 +341,9 @@ text-embeddings-router --model-id nomic-ai/nomic-embed-text-v1.5 --port 8080  # 
 
 ---
 
-### Phase 2: Update Request/Response Formats
+### Phase 2: Update Request/Response Formats ✅ COMPLETE
+
+**Status**: Complete (2026-01-19)
 
 **Goal**: Add model field to rerank requests so clients can specify which model to use.
 
@@ -376,10 +378,17 @@ text-embeddings-router --model-id nomic-ai/nomic-embed-text-v1.5 --port 8080  # 
 - ✅ Unit test: RerankRequest marshals/unmarshals with model field
 - ✅ Unit test: Client includes model in request body
 
+**Implementation Summary**:
+- ✅ Added `Model string` field to `RerankRequest` in `internal/embeddings/reranker.go`
+- ✅ Updated client to send `c.model` in rerank requests
+- ✅ Added `Model string` field to `RerankRequest` in `cmd/tei-wrapper/main.go`
+- ✅ Added unit tests: `TestRerankModelField` and `TestRerankRequestMarshaling`
+- ✅ All existing tests continue to pass
+
 **Success Criteria**:
-- RerankRequest includes model field in both client and server
-- Client sends model name with every rerank request
-- No breaking changes to existing code (model field is added, not replacing anything)
+- ✅ RerankRequest includes model field in both client and server
+- ✅ Client sends model name with every rerank request
+- ✅ No breaking changes to existing code (model field is added, not replacing anything)
 
 ---
 
@@ -729,11 +738,14 @@ Implementation is complete when:
 - ✅ Log shows which config file was loaded (with full path) - **DONE (Phase 1)**
 - ✅ tei-wrapper reads `.code-scout.json` for model configuration - **DONE (Phase 1)**
 - ✅ tei-wrapper works without any CLI flags (`./tei-wrapper` just works) - **DONE (Phase 1)**
-- ⏳ User can configure all models (embedding + reranker) in `.code-scout.json` only - **Phases 2-3**
+- ✅ RerankRequest includes Model field for dynamic loading - **DONE (Phase 2)**
+- ✅ Client sends model in every rerank request - **DONE (Phase 2)**
+- ✅ Unit tests for Model field marshaling and transmission - **DONE (Phase 2)**
+- ⏳ User can configure all models (embedding + reranker) in `.code-scout.json` only - **Phase 3**
 - ⏳ First rerank request loads the configured reranker model automatically - **Phase 3**
 - ⏳ Model switching works mid-session for both embedding and reranker models - **Phase 3**
 - ⏳ All tests pass (unit, integration, end-to-end) - **Phase 4**
-- ✅ Documentation updated and accurate - **Phase 1 docs done, Phase 5 remaining**
+- ✅ Documentation updated and accurate - **Phase 1-2 docs done, Phase 5 remaining**
 - ⏳ At least 2 different reranker models verified working - **Phase 0/4**
 - ⏳ Config priority order respected: Request > Config > CLI > Default - **Phase 3**
 

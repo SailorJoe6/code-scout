@@ -23,6 +23,7 @@ type RerankRequest struct {
 	Texts      []string `json:"texts"`
 	RawScores  bool     `json:"raw_scores,omitempty"`
 	ReturnText bool     `json:"return_text,omitempty"`
+	Model      string   `json:"model"` // Model ID for dynamic loading
 }
 
 // RerankResult represents a single reranking result
@@ -77,6 +78,7 @@ func (c *RerankClient) rerankOnce(query string, texts []string) ([]RerankResult,
 		Texts:      texts,
 		RawScores:  false, // Use normalized scores
 		ReturnText: false, // Don't need text in response (we already have it)
+		Model:      c.model, // Send model for dynamic loading
 	}
 
 	jsonData, err := json.Marshal(reqBody)

@@ -288,6 +288,70 @@ func TestRerankRawScoresParameter(t *testing.T) {
 	}
 }
 
+// TestRerankModelField tests that the Model field is included in the request
+func TestRerankModelField(t *testing.T) {
+	expectedModel := "BAAI/bge-reranker-large"
+	modelReceived := ""
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req RerankRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Fatalf("Failed to decode request: %v", err)
+		}
+
+		modelReceived = req.Model
+
+		resp := []RerankResult{
+			{Index: 0, Score: 0.95},
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(resp)
+	}))
+	defer server.Close()
+
+	client := NewRerankClient(server.URL, "", expectedModel)
+	_, err := client.Rerank("test", []string{"text1"})
+	if err != nil {
+		t.Fatalf("Rerank failed: %v", err)
+	}
+
+	if modelReceived != expectedModel {
+		t.Errorf("Expected model %s, got %s", expectedModel, modelReceived)
+	}
+}
+
+// TestRerankRequestMarshaling tests that RerankRequest marshals correctly with Model field
+func TestRerankRequestMarshaling(t *testing.T) {
+	req := RerankRequest{
+		Query:      "test query",
+		Texts:      []string{"text1", "text2"},
+		RawScores:  false,
+		ReturnText: false,
+		Model:      "BAAI/bge-reranker-large",
+	}
+
+	data, err := json.Marshal(req)
+	if err != nil {
+		t.Fatalf("Failed to marshal RerankRequest: %v", err)
+	}
+
+	// Unmarshal to verify all fields
+	var decoded RerankRequest
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatalf("Failed to unmarshal RerankRequest: %v", err)
+	}
+
+	if decoded.Query != req.Query {
+		t.Errorf("Expected query %s, got %s", req.Query, decoded.Query)
+	}
+	if len(decoded.Texts) != len(req.Texts) {
+		t.Errorf("Expected %d texts, got %d", len(req.Texts), len(decoded.Texts))
+	}
+	if decoded.Model != req.Model {
+		t.Errorf("Expected model %s, got %s", req.Model, decoded.Model)
+	}
+}
+
 // BenchmarkRerank benchmarks reranking
 func BenchmarkRerank(b *testing.B) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
