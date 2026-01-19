@@ -1244,9 +1244,10 @@ func TestHandleRerankSuccess(t *testing.T) {
 	defer mockReranker.Close()
 
 	server := &Server{
-		rerankModel:   "BAAI/bge-reranker-base",
-		rerankBaseURL: mockReranker.URL,
-		rerankHealthy: true,
+		rerankModel:        "BAAI/bge-reranker-base",
+		currentRerankModel: "BAAI/bge-reranker-base", // Set to avoid model switching
+		rerankBaseURL:      mockReranker.URL,
+		rerankHealthy:      true,
 		client: &http.Client{
 			Timeout: 10 * time.Second,
 		},
@@ -1259,6 +1260,7 @@ func TestHandleRerankSuccess(t *testing.T) {
 	reqBody := RerankRequest{
 		Query: "test query",
 		Texts: []string{"document 1", "document 2", "document 3"},
+		Model: "BAAI/bge-reranker-base", // Specify model in request
 	}
 
 	bodyBytes, _ := json.Marshal(reqBody)
@@ -1296,7 +1298,8 @@ func TestHandleRerankSuccess(t *testing.T) {
 // TestHandleRerankNotConfigured tests rerank when not configured
 func TestHandleRerankNotConfigured(t *testing.T) {
 	server := &Server{
-		rerankModel: "", // Not configured
+		config:      nil, // No config
+		rerankModel: "",  // Not configured
 		client: &http.Client{
 			Timeout: 10 * time.Second,
 		},
@@ -1308,6 +1311,7 @@ func TestHandleRerankNotConfigured(t *testing.T) {
 	reqBody := RerankRequest{
 		Query: "test query",
 		Texts: []string{"doc1"},
+		Model: "", // No model specified anywhere
 	}
 
 	bodyBytes, _ := json.Marshal(reqBody)
@@ -1317,17 +1321,19 @@ func TestHandleRerankNotConfigured(t *testing.T) {
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusNotFound {
-		t.Errorf("Expected status 404 when reranker not configured, got %d", resp.StatusCode)
+	// With dynamic loading, this returns 400 (bad request) when no model is specified
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("Expected status 400 when reranker not configured, got %d", resp.StatusCode)
 	}
 }
 
 // TestHandleRerankUnhealthy tests rerank when reranker TEI is unhealthy
 func TestHandleRerankUnhealthy(t *testing.T) {
 	server := &Server{
-		rerankModel:   "BAAI/bge-reranker-base",
-		rerankBaseURL: "http://localhost:9999", // Non-existent server
-		rerankHealthy: false,
+		rerankModel:        "BAAI/bge-reranker-base",
+		currentRerankModel: "BAAI/bge-reranker-base", // Set to avoid model switching
+		rerankBaseURL:      "http://localhost:9999",  // Non-existent server
+		rerankHealthy:      false,
 		client: &http.Client{
 			Timeout: 100 * time.Millisecond,
 		},
@@ -1339,6 +1345,7 @@ func TestHandleRerankUnhealthy(t *testing.T) {
 	reqBody := RerankRequest{
 		Query: "test query",
 		Texts: []string{"doc1"},
+		Model: "BAAI/bge-reranker-base", // Specify model
 	}
 
 	bodyBytes, _ := json.Marshal(reqBody)
@@ -1441,11 +1448,12 @@ func TestHealthEndpointWithReranker(t *testing.T) {
 		defer mockReranker.Close()
 
 		server := &Server{
-			teiBaseURL:    mockTEI.URL,
-			currentModel:  "test-model",
-			rerankModel:   "BAAI/bge-reranker-base",
-			rerankPort:    8081,
-			rerankBaseURL: mockReranker.URL,
+			teiBaseURL:         mockTEI.URL,
+			currentModel:       "test-model",
+			rerankModel:        "BAAI/bge-reranker-base",
+			currentRerankModel: "BAAI/bge-reranker-base", // Set current model
+			rerankPort:         8081,
+			rerankBaseURL:      mockReranker.URL,
 			client: &http.Client{
 				Timeout: 10 * time.Second,
 			},
@@ -1499,11 +1507,12 @@ func TestHealthEndpointWithReranker(t *testing.T) {
 		defer mockTEI.Close()
 
 		server := &Server{
-			teiBaseURL:    mockTEI.URL,
-			currentModel:  "test-model",
-			rerankModel:   "BAAI/bge-reranker-base",
-			rerankPort:    8081,
-			rerankBaseURL: "http://localhost:9999", // Non-existent
+			teiBaseURL:         mockTEI.URL,
+			currentModel:       "test-model",
+			rerankModel:        "BAAI/bge-reranker-base",
+			currentRerankModel: "BAAI/bge-reranker-base", // Set current model
+			rerankPort:         8081,
+			rerankBaseURL:      "http://localhost:9999", // Non-existent
 			client: &http.Client{
 				Timeout: 100 * time.Millisecond,
 			},
@@ -1642,9 +1651,10 @@ func TestRerankRequestFormat(t *testing.T) {
 	defer mockReranker.Close()
 
 	server := &Server{
-		rerankModel:   "BAAI/bge-reranker-base",
-		rerankBaseURL: mockReranker.URL,
-		rerankHealthy: true,
+		rerankModel:        "BAAI/bge-reranker-base",
+		currentRerankModel: "BAAI/bge-reranker-base", // Set to avoid model switching
+		rerankBaseURL:      mockReranker.URL,
+		rerankHealthy:      true,
 		client: &http.Client{
 			Timeout: 10 * time.Second,
 		},
@@ -1658,6 +1668,7 @@ func TestRerankRequestFormat(t *testing.T) {
 			Query:     "test query",
 			Texts:     []string{"doc1", "doc2"},
 			RawScores: true,
+			Model:     "BAAI/bge-reranker-base", // Specify model
 		}
 
 		bodyBytes, _ := json.Marshal(reqBody)
@@ -1677,6 +1688,7 @@ func TestRerankRequestFormat(t *testing.T) {
 			Query:      "test query",
 			Texts:      []string{"doc1", "doc2"},
 			ReturnText: true,
+			Model:      "BAAI/bge-reranker-base", // Specify model
 		}
 
 		bodyBytes, _ := json.Marshal(reqBody)
@@ -1707,9 +1719,10 @@ func TestHandleRerankBackendError(t *testing.T) {
 	defer mockReranker.Close()
 
 	server := &Server{
-		rerankModel:   "BAAI/bge-reranker-base",
-		rerankBaseURL: mockReranker.URL,
-		rerankHealthy: true,
+		rerankModel:        "BAAI/bge-reranker-base",
+		currentRerankModel: "BAAI/bge-reranker-base", // Set to avoid model switching
+		rerankBaseURL:      mockReranker.URL,
+		rerankHealthy:      true,
 		client: &http.Client{
 			Timeout: 10 * time.Second,
 		},
@@ -1721,6 +1734,7 @@ func TestHandleRerankBackendError(t *testing.T) {
 	reqBody := RerankRequest{
 		Query: "test query",
 		Texts: []string{"doc1"},
+		Model: "BAAI/bge-reranker-base", // Specify model
 	}
 
 	bodyBytes, _ := json.Marshal(reqBody)

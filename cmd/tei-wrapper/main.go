@@ -76,11 +76,13 @@ type Server struct {
 	maxBatchTokens int           // Max batch tokens for TEI (controls memory usage)
 
 	// Reranker TEI management (dedicated second instance)
-	rerankPort    int           // Port for reranker TEI (default: 8081)
-	rerankModel   string        // Model ID for reranker (empty = disabled)
-	rerankCmd     *exec.Cmd     // Reranker TEI process
-	rerankBaseURL string        // http://localhost:{rerankPort}
-	rerankHealthy bool          // Current health status
+	rerankPort           int           // Port for reranker TEI (default: 8081)
+	rerankModel          string        // Model ID for reranker (empty = disabled, from CLI flag)
+	currentRerankModel   string        // Currently loaded reranker model
+	rerankCmd            *exec.Cmd     // Reranker TEI process
+	rerankBaseURL        string        // http://localhost:{rerankPort}
+	rerankHealthy        bool          // Current health status
+	rerankSwitching      bool          // True during reranker model switch
 }
 
 func main() {
@@ -159,6 +161,7 @@ func main() {
 		if err := server.waitForRerankTEI(90 * time.Second); err != nil {
 			log.Fatalf("Reranker TEI failed to start: %v", err)
 		}
+		server.currentRerankModel = server.rerankModel
 		log.Printf("Reranker TEI is ready!")
 	}
 
@@ -292,6 +295,42 @@ func (s *Server) switchModel(newModel string) error {
 	}
 
 	log.Printf("Model switched successfully to %s", newModel)
+	return nil
+}
+
+// switchRerankModel switches to a new reranker model by stopping and restarting reranker TEI
+func (s *Server) switchRerankModel(newModel string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	// Check if already on the requested model
+	if s.currentRerankModel == newModel {
+		return nil
+	}
+
+	log.Printf("Switching reranker model from %s to %s", s.currentRerankModel, newModel)
+	s.rerankSwitching = true
+	defer func() { s.rerankSwitching = false }()
+
+	// Stop current reranker TEI if running
+	if s.rerankCmd != nil {
+		s.stopRerankTEI()
+	}
+
+	// Start new reranker TEI with new model
+	s.rerankModel = newModel
+	ctx := context.Background()
+	if err := s.startRerankTEI(ctx); err != nil {
+		return fmt.Errorf("failed to start reranker TEI with new model: %w", err)
+	}
+
+	// Wait for new reranker TEI to be ready
+	if err := s.waitForRerankTEI(90 * time.Second); err != nil {
+		return fmt.Errorf("new reranker TEI failed to start: %w", err)
+	}
+
+	s.currentRerankModel = newModel
+	log.Printf("Reranker model switched successfully to %s", newModel)
 	return nil
 }
 
@@ -453,14 +492,16 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 		"embedding_model": currentModel,
 	}
 
-	// Include reranker status if configured
-	if s.rerankModel != "" {
+	// Include reranker status if configured or currently loaded
+	if s.currentRerankModel != "" || s.rerankModel != "" {
 		rerankHealthy := s.checkRerankHealth()
 		response["reranker"] = map[string]interface{}{
-			"enabled": true,
-			"healthy": rerankHealthy,
-			"model":   s.rerankModel,
-			"port":    s.rerankPort,
+			"enabled":       true,
+			"healthy":       rerankHealthy,
+			"model":         s.currentRerankModel,
+			"port":          s.rerankPort,
+			"switching":     s.rerankSwitching,
+			"startup_model": s.rerankModel, // Model from CLI flag (if any)
 		}
 	}
 
@@ -617,23 +658,62 @@ func (s *Server) handleRerank(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Check if reranker is configured
-	if s.rerankModel == "" {
-		http.Error(w, "Reranker not configured. Start tei-wrapper with --rerank-model flag", http.StatusNotFound)
+	// Parse request to get model
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to read request: %v", err), http.StatusBadRequest)
 		return
+	}
+
+	var req RerankRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		http.Error(w, fmt.Sprintf("Invalid request: %v", err), http.StatusBadRequest)
+		return
+	}
+
+	// Determine which model to use (priority: request > config > CLI > error)
+	requestedModel := req.Model
+	if requestedModel == "" {
+		// Fall back to config file
+		if s.config != nil && s.config.RerankModel != "" {
+			requestedModel = s.config.RerankModel
+		} else if s.rerankModel != "" {
+			// Fall back to CLI flag (deprecated)
+			requestedModel = s.rerankModel
+		} else {
+			http.Error(w, "No reranker model specified. Configure in .code-scout.json or provide in request", http.StatusBadRequest)
+			return
+		}
+	}
+
+	// Check if we're currently switching models
+	s.mu.RLock()
+	isSwitching := s.rerankSwitching
+	s.mu.RUnlock()
+
+	if isSwitching {
+		w.Header().Set("Retry-After", "5")
+		http.Error(w, "Reranker model switch in progress, please retry", http.StatusServiceUnavailable)
+		return
+	}
+
+	// Check if we need to switch models
+	s.mu.RLock()
+	needsSwitch := requestedModel != s.currentRerankModel
+	s.mu.RUnlock()
+
+	if needsSwitch {
+		if err := s.switchRerankModel(requestedModel); err != nil {
+			log.Printf("Reranker model switch failed: %v", err)
+			http.Error(w, fmt.Sprintf("Model switch failed: %v", err), http.StatusInternalServerError)
+			return
+		}
 	}
 
 	// Check if reranker is healthy
 	if !s.rerankHealthy && !s.checkRerankHealth() {
 		w.Header().Set("Retry-After", "5")
 		http.Error(w, "Reranker TEI is not available", http.StatusServiceUnavailable)
-		return
-	}
-
-	// Read request body
-	body, err := io.ReadAll(r.Body)
-	if err != nil {
-		http.Error(w, fmt.Sprintf("Failed to read request: %v", err), http.StatusBadRequest)
 		return
 	}
 
