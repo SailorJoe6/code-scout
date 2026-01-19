@@ -15,6 +15,8 @@ import (
 	"sync"
 	"syscall"
 	"time"
+
+	"github.com/jlanders/code-scout/internal/config"
 )
 
 // OpenAI API request format
@@ -52,6 +54,7 @@ type TEIResponse [][]float64
 
 // Server manages the TEI wrapper
 type Server struct {
+	config       *config.Config // Config from .code-scout.json
 	teiPort      int
 	teiBinary    string
 	initialModel string
@@ -81,33 +84,48 @@ type Server struct {
 }
 
 func main() {
-	// Command line flags
+	// Load config from .code-scout.json (or use defaults)
+	cfg, err := config.Load()
+	if err != nil {
+		log.Fatalf("Failed to load config: %v", err)
+	}
+
+	// Command line flags (with config defaults)
 	port := flag.Int("port", 11435, "Port to listen on (default avoids Ollama 11434)")
 	teiPort := flag.Int("tei-port", 8080, "TEI internal port")
 	teiBinary := flag.String("tei-binary", "text-embeddings-router", "Path to TEI binary")
-	model := flag.String("model", "nomic-ai/nomic-embed-text-v1.5", "Initial model (default: text model for search-heavy workflows)")
+
+	// Model flags with config file as defaults (CLI overrides config)
+	model := flag.String("model", cfg.TextModel, "Initial model (default from config: text model)")
 	idlePreload := flag.Bool("idle-preload", false, "Enable idle-based preloading of text model")
 	idleTimeout := flag.Duration("idle-timeout", 30*time.Second, "Idle time before preloading text model")
 	maxBatchTokens := flag.Int("max-batch-tokens", 8192, "Maximum batch tokens for TEI (controls memory usage, lower = less RAM)")
 
 	// Reranker flags (optional - enables dedicated reranker TEI instance)
 	rerankPort := flag.Int("rerank-port", 8081, "Port for reranker TEI instance")
-	rerankModel := flag.String("rerank-model", "", "Model ID for reranker (e.g., BAAI/bge-reranker-base). Empty = reranker disabled")
+	rerankModel := flag.String("rerank-model", cfg.RerankModel, "Model ID for reranker (default from config). Empty = reranker disabled")
 	flag.Parse()
+
+	// Priority: CLI flag > config file > hardcoded default
+	initialModel := *model
+	if initialModel == "" {
+		initialModel = "nomic-ai/nomic-embed-text-v1.5" // Hardcoded fallback
+	}
 
 	// Create server
 	server := &Server{
+		config:       cfg,
 		teiPort:      *teiPort,
 		teiBinary:    *teiBinary,
-		initialModel: *model,
-		currentModel: *model,
+		initialModel: initialModel,
+		currentModel: initialModel,
 		teiBaseURL:   fmt.Sprintf("http://localhost:%d", *teiPort),
 		client: &http.Client{
 			Timeout: 120 * time.Second, // Long timeout for large batches
 		},
 		idlePreload:    *idlePreload,
 		idleTimeout:    *idleTimeout,
-		preferredModel: "nomic-ai/nomic-embed-text-v1.5", // Always prefer text model when idle (for search-heavy workflows)
+		preferredModel: cfg.TextModel, // Prefer text model from config when idle
 		maxBatchTokens: *maxBatchTokens,
 		// Reranker config
 		rerankPort:    *rerankPort,

@@ -223,6 +223,8 @@ Configuration can be specified in two ways:
 1. **User-level**: `~/.code-scout/config.json` - Global defaults for all projects
 2. **Project-level**: `.code-scout.json` - Project-specific settings (overrides user-level)
 
+**Config Discovery**: Both `code-scout` and `tei-wrapper` automatically search for `.code-scout.json` by walking up the directory tree from your current working directory (similar to how git finds `.git/`). This means you can run commands from any subdirectory within your project, and they'll find the project's configuration file. If no project config is found, the user-level config (`~/.code-scout/config.json`) is used as a fallback.
+
 ### Configuration Format
 
 Create a JSON file with the following structure:

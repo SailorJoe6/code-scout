@@ -3,6 +3,7 @@ package config
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -33,20 +34,29 @@ func Default() *Config {
 }
 
 // Load loads configuration from file paths in order of precedence:
-// 1. Project-level: .code-scout.json in current directory
+// 1. Project-level: .code-scout.json (searches up directory tree from PWD)
 // 2. User-level: ~/.code-scout/config.json
-// If no config file exists, returns default config
+// If no config file exists, returns default config with warning
 func Load() (*Config, error) {
 	cfg := Default()
+	foundConfig := false
 
 	// Try user-level config first
 	if userConfig, err := loadUserConfig(); err == nil && userConfig != nil {
 		mergeConfig(cfg, userConfig)
+		foundConfig = true
 	}
 
-	// Try project-level config (overrides user-level)
-	if projectConfig, err := loadProjectConfig(); err == nil && projectConfig != nil {
+	// Try project-level config (searches up from PWD, overrides user-level)
+	if projectConfig, configPath, err := loadProjectConfig(); err == nil && projectConfig != nil {
 		mergeConfig(cfg, projectConfig)
+		log.Printf("Loaded config from: %s", configPath)
+		foundConfig = true
+	}
+
+	// Warn if no config found
+	if !foundConfig {
+		log.Println("WARNING: No .code-scout.json found (searched up directory tree) and no ~/.code-scout/config.json found. Using default configuration.")
 	}
 
 	return cfg, nil
@@ -63,9 +73,33 @@ func loadUserConfig() (*Config, error) {
 	return loadFromFile(configPath)
 }
 
-// loadProjectConfig loads .code-scout.json from current directory
-func loadProjectConfig() (*Config, error) {
-	return loadFromFile(".code-scout.json")
+// loadProjectConfig searches up the directory tree for .code-scout.json
+func loadProjectConfig() (*Config, string, error) {
+	currentDir, err := os.Getwd()
+	if err != nil {
+		return nil, "", err
+	}
+
+	// Search up directory tree (like git does for .git/)
+	for {
+		configPath := filepath.Join(currentDir, ".code-scout.json")
+
+		// Check if config exists
+		if _, err := os.Stat(configPath); err == nil {
+			cfg, err := loadFromFile(configPath)
+			return cfg, configPath, err
+		}
+
+		// Move to parent directory
+		parent := filepath.Dir(currentDir)
+		if parent == currentDir {
+			// Reached filesystem root
+			break
+		}
+		currentDir = parent
+	}
+
+	return nil, "", nil // Not found
 }
 
 // loadFromFile loads configuration from a JSON file

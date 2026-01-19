@@ -812,3 +812,142 @@ func TestSingleModelMode_SaveAndLoad(t *testing.T) {
 		t.Errorf("expected SingleModelMode to be false, got %v", *loaded.SingleModelMode)
 	}
 }
+
+func TestLoad_ProjectConfigSearchesUpDirectoryTree(t *testing.T) {
+	// Save original working directory
+	origDir, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("failed to get working directory: %v", err)
+	}
+	defer os.Chdir(origDir)
+
+	// Save original HOME env var
+	origHome := os.Getenv("HOME")
+	defer os.Setenv("HOME", origHome)
+
+	// Create temp directory structure:
+	// tempDir/
+	//   .code-scout.json (root config)
+	//   subdir1/
+	//     subdir2/
+	//       subdir3/ (we'll cd here)
+	tempDir := t.TempDir()
+	subdir1 := filepath.Join(tempDir, "subdir1")
+	subdir2 := filepath.Join(subdir1, "subdir2")
+	subdir3 := filepath.Join(subdir2, "subdir3")
+
+	if err := os.MkdirAll(subdir3, 0755); err != nil {
+		t.Fatalf("failed to create subdirs: %v", err)
+	}
+
+	// Set HOME to location with no user config
+	tempHome := filepath.Join(tempDir, "home")
+	os.Setenv("HOME", tempHome)
+
+	// Create project config at root
+	rootConfig := `{
+  "endpoint": "http://root-config:7000",
+  "code_model": "root-code",
+  "text_model": "root-text",
+  "rerank_model": "root-rerank"
+}`
+	rootConfigPath := filepath.Join(tempDir, ".code-scout.json")
+	if err := os.WriteFile(rootConfigPath, []byte(rootConfig), 0644); err != nil {
+		t.Fatalf("failed to write root config: %v", err)
+	}
+
+	// Change to deep subdirectory
+	if err := os.Chdir(subdir3); err != nil {
+		t.Fatalf("failed to change to subdir3: %v", err)
+	}
+
+	// Load config (should find the root config by searching up)
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Should have root config values
+	if cfg.Endpoint != "http://root-config:7000" {
+		t.Errorf("expected root endpoint, got %s", cfg.Endpoint)
+	}
+	if cfg.CodeModel != "root-code" {
+		t.Errorf("expected root code model, got %s", cfg.CodeModel)
+	}
+	if cfg.TextModel != "root-text" {
+		t.Errorf("expected root text model, got %s", cfg.TextModel)
+	}
+	if cfg.RerankModel != "root-rerank" {
+		t.Errorf("expected root rerank model, got %s", cfg.RerankModel)
+	}
+}
+
+func TestLoad_ProjectConfigFindsNearestConfig(t *testing.T) {
+	// Save original working directory
+	origDir, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("failed to get working directory: %v", err)
+	}
+	defer os.Chdir(origDir)
+
+	// Save original HOME env var
+	origHome := os.Getenv("HOME")
+	defer os.Setenv("HOME", origHome)
+
+	// Create temp directory structure with configs at multiple levels:
+	// tempDir/
+	//   .code-scout.json (root config)
+	//   subdir1/
+	//     .code-scout.json (middle config)
+	//     subdir2/ (we'll cd here)
+	tempDir := t.TempDir()
+	subdir1 := filepath.Join(tempDir, "subdir1")
+	subdir2 := filepath.Join(subdir1, "subdir2")
+
+	if err := os.MkdirAll(subdir2, 0755); err != nil {
+		t.Fatalf("failed to create subdirs: %v", err)
+	}
+
+	// Set HOME to location with no user config
+	tempHome := filepath.Join(tempDir, "home")
+	os.Setenv("HOME", tempHome)
+
+	// Create root config
+	rootConfig := `{
+  "endpoint": "http://root:7000",
+  "code_model": "root-code"
+}`
+	rootConfigPath := filepath.Join(tempDir, ".code-scout.json")
+	if err := os.WriteFile(rootConfigPath, []byte(rootConfig), 0644); err != nil {
+		t.Fatalf("failed to write root config: %v", err)
+	}
+
+	// Create middle config (closer to where we'll cd)
+	middleConfig := `{
+  "endpoint": "http://middle:8000",
+  "code_model": "middle-code"
+}`
+	middleConfigPath := filepath.Join(subdir1, ".code-scout.json")
+	if err := os.WriteFile(middleConfigPath, []byte(middleConfig), 0644); err != nil {
+		t.Fatalf("failed to write middle config: %v", err)
+	}
+
+	// Change to subdir2 (middle config is closest)
+	if err := os.Chdir(subdir2); err != nil {
+		t.Fatalf("failed to change to subdir2: %v", err)
+	}
+
+	// Load config (should find the middle config, not the root)
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Should have middle config values
+	if cfg.Endpoint != "http://middle:8000" {
+		t.Errorf("expected middle endpoint, got %s", cfg.Endpoint)
+	}
+	if cfg.CodeModel != "middle-code" {
+		t.Errorf("expected middle code model, got %s", cfg.CodeModel)
+	}
+}
