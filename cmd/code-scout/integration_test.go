@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"io"
 	"math"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -46,7 +48,7 @@ func fakeVector(text string, offset float64) []float64 {
 	return vec
 }
 
-func installFakeEmbeddings(t *testing.T) {
+func installFakeEmbeddings(t *testing.T, rerankFactory func() *embeddings.RerankClient) {
 	codeClient := &fakeEmbeddingClient{offset: 1}
 	docsClient := &fakeEmbeddingClient{offset: 1000}
 	prevCode := newCodeEmbeddingClient
@@ -54,7 +56,11 @@ func installFakeEmbeddings(t *testing.T) {
 	prevRerank := newRerankClient
 	newCodeEmbeddingClient = func() embeddings.Client { return codeClient }
 	newDocsEmbeddingClient = func() embeddings.Client { return docsClient }
-	newRerankClient = func() *embeddings.RerankClient { return nil } // No reranking in integration tests
+	if rerankFactory == nil {
+		newRerankClient = func() *embeddings.RerankClient { return nil }
+	} else {
+		newRerankClient = rerankFactory
+	}
 	t.Cleanup(func() {
 		newCodeEmbeddingClient = prevCode
 		newDocsEmbeddingClient = prevDocs
@@ -63,7 +69,7 @@ func installFakeEmbeddings(t *testing.T) {
 }
 
 func TestIndexAndSearchEndToEnd(t *testing.T) {
-	installFakeEmbeddings(t)
+	installFakeEmbeddings(t, nil)
 	workDir := t.TempDir()
 	writeTestFile(t, workDir, "main.go", `package main
 
@@ -126,13 +132,36 @@ This section explains the architecture.
 }
 
 func TestSearchReranksTopK(t *testing.T) {
-	// Skip: This test requires a mock RerankClient implementation.
-	// The old fake bi-encoder reranking was replaced with proper cross-encoder
-	// reranking using the TEI /rerank endpoint (see code_scout-n5n epic).
-	// TODO: Implement a mock RerankClient for testing reranking in isolation.
-	t.Skip("skipping: requires mock RerankClient for cross-encoder reranking")
+	mockRerank := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			t.Errorf("expected POST, got %s", r.Method)
+		}
+		if r.URL.Path != "/rerank" {
+			t.Errorf("expected /rerank, got %s", r.URL.Path)
+		}
 
-	installFakeEmbeddings(t)
+		var req embeddings.RerankRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Fatalf("decode rerank request: %v", err)
+		}
+		if req.Model != "test-rerank" {
+			t.Errorf("expected model test-rerank, got %s", req.Model)
+		}
+
+		resp := []embeddings.RerankResult{
+			{Index: 1, Score: 0.9},
+			{Index: 0, Score: 0.8},
+		}
+		w.Header().Set("Content-Type", "application/json")
+		if err := json.NewEncoder(w).Encode(resp); err != nil {
+			t.Fatalf("encode rerank response: %v", err)
+		}
+	}))
+	t.Cleanup(mockRerank.Close)
+
+	installFakeEmbeddings(t, func() *embeddings.RerankClient {
+		return embeddings.NewRerankClient(mockRerank.URL, "", "test-rerank")
+	})
 	workDir := t.TempDir()
 	writeTestFile(t, workDir, "main.go", `package main
 
@@ -145,10 +174,11 @@ func Add(a, b int) int {
 func Multiply(a, b int) int {
 	return a * b
 }
-`)
+	`)
 
 	prevConfig := globalConfig
 	cfg := config.Default()
+	cfg.Endpoint = mockRerank.URL
 	cfg.RerankModel = "test-rerank"
 	cfg.RerankTopK = 2
 	globalConfig = cfg

@@ -105,8 +105,15 @@ func main() {
 
 	// Reranker flags (optional - enables dedicated reranker TEI instance)
 	rerankPort := flag.Int("rerank-port", 8081, "Port for reranker TEI instance")
-	rerankModel := flag.String("rerank-model", cfg.RerankModel, "Model ID for reranker (default from config). Empty = reranker disabled")
+	rerankModel := flag.String("rerank-model", "", "Model ID for reranker (deprecated; empty = load on-demand from config)")
 	flag.Parse()
+
+	rerankModelSet := false
+	flag.CommandLine.Visit(func(f *flag.Flag) {
+		if f.Name == "rerank-model" {
+			rerankModelSet = true
+		}
+	})
 
 	// Priority: CLI flag > config file > hardcoded default
 	initialModel := *model
@@ -149,8 +156,8 @@ func main() {
 	}
 	log.Printf("TEI is ready!")
 
-	// Start reranker TEI if model is specified
-	if server.rerankModel != "" {
+	// Start reranker TEI only when explicitly set via CLI flag
+	if rerankModelSet && server.rerankModel != "" {
 		log.Printf("Starting reranker TEI with model: %s", server.rerankModel)
 		if err := server.startRerankTEI(context.Background()); err != nil {
 			log.Fatalf("Failed to start reranker TEI: %v", err)
@@ -493,7 +500,7 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Include reranker status if configured or currently loaded
-	if s.currentRerankModel != "" || s.rerankModel != "" {
+	if s.rerankerConfigured() {
 		rerankHealthy := s.checkRerankHealth()
 		response["reranker"] = map[string]interface{}{
 			"enabled":       true,
@@ -620,10 +627,21 @@ func (s *Server) waitForRerankTEI(timeout time.Duration) error {
 	return fmt.Errorf("reranker TEI did not become ready within %v", timeout)
 }
 
+func (s *Server) rerankerConfigured() bool {
+	if s.currentRerankModel != "" || s.rerankModel != "" {
+		return true
+	}
+	return s.config != nil && s.config.RerankModel != ""
+}
+
 // checkRerankHealth checks if reranker TEI is healthy
 func (s *Server) checkRerankHealth() bool {
-	if s.rerankModel == "" {
+	if !s.rerankerConfigured() {
 		return false // Reranker not configured
+	}
+	if s.currentRerankModel == "" && s.rerankModel == "" {
+		s.rerankHealthy = false
+		return false // Configured but not started yet
 	}
 	resp, err := s.client.Get(s.rerankBaseURL + "/health")
 	if err != nil {
