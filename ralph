@@ -1,9 +1,20 @@
 #!/usr/bin/env bash
 
-ERROR_LOG="ralph-error.log"
-OUT_LOG="ralph-output.log"
+ERROR_LOG="ralph-error.md"
+OUT_LOG="ralph-output.md"
+DESIGN_PROMPT=".claude/commands/design.md"
+PLAN_PROMPT=".claude/commands/plan.md"
+EXECUTE_PROMPT=".claude/commands/execute.md"
+
 UNATTENDED=0
+USE_CODEX=0
 PASS=0
+CALLBACK=""
+CONTAINER_NAME=""
+CONTAINER_WORKDIR="/workspaces/code_scout"
+CONTAINER_RUNTIME="podman"
+
+trap 'exit 0' INT
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -11,33 +22,120 @@ while [[ $# -gt 0 ]]; do
       UNATTENDED=1
       shift
       ;;
+    --codex)
+      USE_CODEX=1
+      shift
+      ;;
+    --container)
+      if [[ $# -lt 2 ]]; then
+        echo "Error: --container requires a container name"
+        exit 2
+      fi
+      CONTAINER_NAME="$2"
+      shift 2
+      ;;
+    --callback)
+      if [[ $# -lt 2 ]]; then
+        echo "Error: --callback requires a script path"
+        exit 2
+      fi
+      CALLBACK="$2"
+      shift 2
+      ;;
     *)
-      echo "Usage: $0 [-u|--unattended]"
+      echo "Usage: $0 [-u|--unattended] [--codex] [--container <name>] [--callback <script>]"
       exit 2
       ;;
   esac
 done
 
+if [[ -n "$CALLBACK" ]]; then
+  if ! command -v -- "$CALLBACK" >/dev/null 2>&1; then
+    echo "Error: --callback not found or not executable: $CALLBACK" >&2
+    exit 2
+  fi
+fi
+
+if [[ -n "$CONTAINER_NAME" ]]; then
+  if ! command -v "$CONTAINER_RUNTIME" >/dev/null 2>&1; then
+    echo "Error: $CONTAINER_RUNTIME not found (required for --container)" >&2
+    exit 2
+  fi
+fi
+
+ensure_container_running() {
+  if [[ -z "$CONTAINER_NAME" ]]; then
+    return 0
+  fi
+
+  local running
+  running="$("$CONTAINER_RUNTIME" inspect -f '{{.State.Running}}' "$CONTAINER_NAME" 2>/dev/null)"
+  if [[ -z "$running" ]]; then
+    echo "Error: container not found: $CONTAINER_NAME" >&2
+    exit 2
+  fi
+  if [[ "$running" != "true" ]]; then
+    echo "Error: container is not running: $CONTAINER_NAME" >&2
+    exit 2
+  fi
+}
+
+container_exec() {
+  "$CONTAINER_RUNTIME" exec "${CONTAINER_EXEC_FLAGS[@]}" -w "$CONTAINER_WORKDIR" "$CONTAINER_NAME" "$@"
+}
+
 while :; do
   PASS=$((PASS + 1))
-  PROMPT=".claude/commands/design.md"
-  if [[ -f docs/planning/SPECIFICATION.md && -f docs/planning/IMPLEMENTATION_PLAN.md ]]; then
-    PROMPT=".claude/commands/execute.md"
+  PROMPT="$DESIGN_PROMPT"
+  if [[ -f docs/planning/SPECIFICATION.md && -f docs/planning/EXECUTION_PLAN.md ]]; then
+    PROMPT="$EXECUTE_PROMPT"
   elif [[ -f docs/planning/SPECIFICATION.md ]]; then
-    PROMPT=".claude/commands/plan.md"
-  elif [[ -f docs/planning/IMPLEMENTATION_PLAN.md ]]; then
-    echo "Error: docs/planning/IMPLEMENTATION_PLAN.md exists but docs/planning/SPECIFICATION.md is missing."
+    PROMPT="$PLAN_PROMPT"
+  elif [[ -f docs/planning/EXECUTION_PLAN.md ]]; then
+    echo "Error: docs/planning/EXECUTION_PLAN.md exists but docs/planning/SPECIFICATION.md is missing."
     exit 1
   fi
 
   # Only run unattended during execution; design/plan require user input!
-  if [[ "$PROMPT" == ".claude/commands/execute.md" && $UNATTENDED -eq 1 ]]; then
+  if [[ "$PROMPT" == "$EXECUTE_PROMPT" && $UNATTENDED -eq 1 ]]; then
+    ensure_container_running
     {
-      printf 'Pass %d:\n' "$PASS"
-      cat "$PROMPT" | claude -p --dangerously-skip-permissions
+      printf '\n---\n\nPass %d:\n' "$PASS"
+      if [[ $USE_CODEX -eq 1 ]]; then
+        prompt_text="$(cat "$PROMPT")"
+        if [[ -n "$CONTAINER_NAME" ]]; then
+          CONTAINER_EXEC_FLAGS=(-i)
+          container_exec codex exec --full-auto --sandbox danger-full-access "$prompt_text"
+        else
+          codex exec --full-auto --sandbox danger-full-access "$prompt_text"
+        fi
+      else
+        if [[ -n "$CONTAINER_NAME" ]]; then
+          CONTAINER_EXEC_FLAGS=(-i)
+          cat "$PROMPT" | container_exec claude -p --dangerously-skip-permissions --debug api
+        else
+          cat "$PROMPT" | claude -p --dangerously-skip-permissions --debug api
+        fi
+      fi
     } >> "$OUT_LOG" 2> "$ERROR_LOG"
   else
-    cat "$PROMPT" | claude 2> "$ERROR_LOG"
+    ensure_container_running
+    if [[ $USE_CODEX -eq 1 ]]; then
+      prompt_text="$(cat "$PROMPT")"
+      if [[ -n "$CONTAINER_NAME" ]]; then
+        CONTAINER_EXEC_FLAGS=(-i -t)
+        container_exec codex "$prompt_text" 2> "$ERROR_LOG"
+      else
+        codex "$prompt_text" 2> "$ERROR_LOG"
+      fi
+    else
+      if [[ -n "$CONTAINER_NAME" ]]; then
+        CONTAINER_EXEC_FLAGS=(-i -t)
+        cat "$PROMPT" | container_exec claude 2> "$ERROR_LOG"
+      else
+        cat "$PROMPT" | claude 2> "$ERROR_LOG"
+      fi
+    fi
   fi
   status=$?
   if [[ $status -eq 130 ]]; then
@@ -45,7 +143,19 @@ while :; do
   fi
 
   if [[ $status -ne 0 ]]; then
-    echo "Claude exited with status $status"
+    if [[ $USE_CODEX -eq 1 ]]; then
+      echo "Codex exited with status $status"
+    else
+      echo "Claude exited with status $status"
+    fi
     cat "$ERROR_LOG"
+    exit 1
+  fi
+
+  if [[ -n "$CALLBACK" ]]; then
+    if ! "$CALLBACK"; then
+      echo "Callback failed: $CALLBACK" >&2
+      exit 1
+    fi
   fi
 done

@@ -6,13 +6,13 @@ Study the following files in order to understand the project:
 
 Pay special attention to instructions about using the Make files!
 
-After you have studied those files, study the [plans](docs/planning/README.md) and read any other docs in the `docs/planning/` folder.  you should find a file `docs/planning/IMPLEMENTATION_PLAN.md`.  That file describes the implementation plan for `docs/planning/SPECIFICATION.md`.  If either of those files are missing, STOP!  Tell me which file(s) is/are missing and await further instructions.
+After you have studied those files, study the [plans](docs/planning/README.md) and read any other docs in the `docs/planning/` folder.  you should find a file `docs/planning/EXECUTION_PLAN.md`.  That file describes the implementation plan for `docs/planning/SPECIFICATION.md`.  If either of those files are missing, STOP!  Tell me which file(s) is/are missing and await further instructions.
 
 Assuming both of those files exist, study them!  Finally run `bd prime`.  This will get you up to speed on where we are, what we are working on and what's left to do.  Some of the work may have been completed in previous sections.  Audit the code against the spec and the plan to deterine what work is left.  
 
 If you find a ticket that is not closed in beads, but you find the work is all the way done, you should check to ensure proper documentation and tests exist for the work, and if everything is perfect you should close that ticket and ensure the plan represents the finished work.  
 
-If there is no work left to do on this project, then check if the spec has been completely converted to a document (or set of documents) in the docs folder describing the new state of this code.  If that hasn't been done, then that is your next task.  If there are no more tasks, and the project is truely done, delete both the `docs/planning/SPECIFICATION.md` and the `docs/planning/IMPLEMENTATION_PLAN.md` files, then report back to the user that there's nothing left to do and await further instructions.    
+If there is no work left to do on this project, then check if the spec has been completely converted to a document (or set of documents) in the docs folder describing the new state of this code.  If that hasn't been done, then that is your next task.  If there are no more tasks, and the project is truely done, delete both the `docs/planning/SPECIFICATION.md` and the `docs/planning/EXECUTION_PLAN.md` files, then report back to the user that there's nothing left to do and await further instructions.    
 
 Assuming there still is work left to do, then do the most imporant thing to move the project forward.  Pick the one most important next task and do it.  You may use up to 10 subagents in any way you see fit.  
 

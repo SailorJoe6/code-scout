@@ -61,7 +61,9 @@
       "Bash(make build:*)",
       "Bash(./dist/code-scout-darwin_arm64/code-scout.bin search:*)",
       "Bash(pkill:*)",
-      "Bash(git pull:*)"
+      "Bash(git pull:*)",
+      "Bash(text-embeddings-router:*)",
+      "Bash(chmod:*)"
     ],
     "deny": [],
     "ask": []

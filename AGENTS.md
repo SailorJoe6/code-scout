@@ -28,14 +28,43 @@ A semantic code search tool that indexes codebases using embeddings. It understa
 ### When to Use It
 
 **Use code-scout when:**
-- ✅ Finding where functionality is implemented ("where is authentication handled?")
-- ✅ Understanding code structure ("what functions deal with parsing?")
-- ✅ Exploring unfamiliar parts of the codebase
-- ✅ Finding related code across multiple files
+- Finding where functionality is implemented ("where is authentication handled?")
+- Understanding code structure ("what functions deal with parsing?")
+- Exploring unfamiliar parts of the codebase
+- Finding related code across multiple files
 
 **Use grep/other tools when:**
-- ❌ Finding exact text matches (variable names, strings)
-- ❌ You already know exactly what file/function you need
+- Finding exact text matches (variable names, strings)
+- You already know exactly what file/function you need
+
+### Build First
+
+Before dogfooding, you must build the project:
+
+```bash
+# Download native libraries (one-time setup)
+curl -sSL https://raw.githubusercontent.com/lancedb/lancedb-go/main/scripts/download-artifacts.sh | bash
+./fix-dylib-paths.sh  # macOS only
+
+# Build all platform bundles
+./build.sh
+```
+
+See [DEVELOPERS.md](DEVELOPERS.md#building-code-scout) for complete build prerequisites and troubleshooting.
+
+### Finding Your Binary
+
+Built binaries are in `dist/`. Choose the right one for your platform:
+
+```bash
+# Detect your platform
+uname -sm
+# "Darwin arm64"  → ./dist/code-scout-darwin_arm64/code-scout
+# "Darwin x86_64" → ./dist/code-scout-darwin_amd64/code-scout
+# "Linux x86_64"  → ./dist/code-scout-linux_amd64/code-scout
+```
+
+**Important:** Always run the `code-scout` wrapper, not `code-scout.bin` directly. The wrapper sets library paths needed for the native LanceDB libraries. See [DEVELOPERS.md](DEVELOPERS.md#understanding-the-dist-folder) for details on the dist/ structure.
 
 ### Basic Usage
 
@@ -53,9 +82,10 @@ A semantic code search tool that indexes codebases using embeddings. It understa
 # - Relevance scores
 ```
 
-**Keep it up to date!** 
+**Keep it up to date!**
 - Use `code-scout search` to understand this codebase while you work on it.
 - Use `code-scout index` to update the database after every code change
+- After making code changes, rebuild with `./build.sh` before re-indexing
 
 
 ## Landing the Plane (Session Completion)

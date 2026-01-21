@@ -27,7 +27,8 @@ go.work
 
 # Code Scout project-specific config (may contain sensitive endpoints/credentials)
 .code-scout.json
-!.code-scout.json.example
+!.code-scout.json.local.example
+!.code-scout.json.external.example
 
 # LanceDB native libraries (downloaded via script)
 lib/
@@ -41,5 +42,6 @@ dist/
 .code-scout.json.dgx_spark.ollama
 
 # Ralph logs
-ralph-error.log
-ralph-output.log
+ralph-error.md
+ralph-output.md
+tei-wrapper.log
