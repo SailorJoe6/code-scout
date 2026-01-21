@@ -22,6 +22,10 @@ This directory contains setup and usage guides for Code Scout users and develope
   - Model installation and configuration
   - Concurrency limitations
 
+### Development Environment
+
+- **[DEV_CONTAINER.md](DEV_CONTAINER.md)** - Docker-based development container setup
+
 ### Advanced Features
 
 - **[RERANKER_SETUP.md](RERANKER_SETUP.md)** - Cross-encoder reranking for improved search relevance
@@ -30,6 +34,9 @@ This directory contains setup and usage guides for Code Scout users and develope
   - Platform-specific deployment
   - Performance tuning and optimization
   - Troubleshooting
+- **[TESTED_MODELS.md](TESTED_MODELS.md)** - Verified reranker model compatibility
+  - TEI versions and validation status
+  - Notes on tested models and gaps
 
 - **[BACKGROUND_DAEMON.md](BACKGROUND_DAEMON.md)** - Automatic background indexing
   - File watcher setup

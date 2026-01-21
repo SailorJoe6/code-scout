@@ -43,32 +43,9 @@ Code Scout performs semantic search in two stages:
 
 ## Quick Start
 
-### 1. Build and Start TEI Wrapper with Reranker
+### 1. Configure Code Scout
 
-The tei-wrapper automatically manages both embedding and reranker TEI instances:
-
-```bash
-# Build tei-wrapper (if not already built)
-cd cmd/tei-wrapper
-go build -o tei-wrapper .
-
-# Start with reranker enabled (spawns two TEI instances)
-./tei-wrapper \
-  --model nomic-ai/nomic-embed-text-v1.5 \
-  --rerank-model BAAI/bge-reranker-base
-```
-
-**What happens:**
-1. Wrapper starts **embedding TEI** on port 8080 (hot-swappable models)
-2. Wrapper starts **reranker TEI** on port 8081 (dedicated instance)
-3. Wrapper exposes unified API on port 11434:
-   - `/v1/embeddings` → routes to embedding TEI
-   - `/rerank` → routes to reranker TEI
-   - `/health` → shows status of both instances
-
-### 2. Configure Code Scout
-
-Create or update `.code-scout.json`:
+Create or update `.code-scout.json` to enable reranking:
 
 ```json
 {
@@ -84,6 +61,27 @@ Create or update `.code-scout.json`:
 - `endpoint`: tei-wrapper endpoint (single entry point for all services)
 - `rerank_model`: Cross-encoder model name (empty = reranking disabled)
 - `rerank_top_k`: Number of top results to rerank (higher = better but slower)
+
+### 2. Build and Start TEI Wrapper
+
+The tei-wrapper automatically manages both embedding and reranker TEI instances:
+
+```bash
+# Build tei-wrapper (if not already built)
+cd cmd/tei-wrapper
+go build -o tei-wrapper .
+
+# Start (reranker loads on first /rerank request)
+./tei-wrapper
+```
+
+**What happens:**
+1. Wrapper starts **embedding TEI** on port 8080 (hot-swappable models)
+2. Wrapper starts **reranker TEI** on-demand when `/rerank` is first called
+3. Wrapper exposes unified API on port 11434:
+   - `/v1/embeddings` → routes to embedding TEI
+   - `/rerank` → routes to reranker TEI
+   - `/health` → shows status of both instances
 
 ### 3. Search with Reranking
 
@@ -114,7 +112,7 @@ Notice:
 
 ### Recommended Models
 
-All models listed below are tested and supported by Code Scout:
+See [TESTED_MODELS.md](TESTED_MODELS.md) for the current verified list and TEI versions. The table below highlights common choices:
 
 | Model | Size | Speed | Accuracy | Use Case |
 |-------|------|-------|----------|----------|
@@ -179,10 +177,8 @@ cd cmd/tei-wrapper
 # Build (if not already built)
 go build -o tei-wrapper .
 
-# Start with reranker (Metal GPU acceleration automatic)
-./tei-wrapper \
-  --model nomic-ai/nomic-embed-text-v1.5 \
-  --rerank-model BAAI/bge-reranker-base
+# Start (Metal GPU acceleration automatic)
+./tei-wrapper
 ```
 
 **Verify:**
@@ -202,6 +198,7 @@ curl http://localhost:11434/health | jq
   }
 }
 ```
+If `model` is empty, run a `code-scout search` once to trigger the first rerank request and reload `/health`.
 
 ### Linux (Native Binary + CUDA)
 
@@ -226,11 +223,8 @@ sudo mv text-embeddings-inference-linux-x86_64 /usr/local/bin/text-embeddings-ro
 cd cmd/tei-wrapper
 go build -o tei-wrapper .
 
-# Start with reranker (CUDA acceleration automatic)
-./tei-wrapper \
-  --tei-binary /usr/local/bin/text-embeddings-router \
-  --model nomic-ai/nomic-embed-text-v1.5 \
-  --rerank-model BAAI/bge-reranker-base
+# Start with CUDA acceleration (reranker loads on first request)
+./tei-wrapper --tei-binary /usr/local/bin/text-embeddings-router
 ```
 
 ### Linux/Windows (Docker + CUDA)
@@ -270,9 +264,8 @@ For systems without GPU:
 
 ```bash
 # Use lightweight model for better CPU performance
-./tei-wrapper \
-  --model nomic-ai/nomic-embed-text-v1.5 \
-  --rerank-model cross-encoder/ms-marco-MiniLM-L-6-v2
+# .code-scout.json: "rerank_model": "cross-encoder/ms-marco-MiniLM-L-6-v2"
+./tei-wrapper
 ```
 
 **Performance expectations:**
@@ -282,16 +275,16 @@ For systems without GPU:
 
 ## Configuration Reference
 
-### tei-wrapper Command-Line Flags
+### tei-wrapper Command-Line Flags (Legacy)
 
-Reranker-specific flags:
+Reranker flags are deprecated; prefer `.code-scout.json`:
 
 | Flag | Type | Default | Description |
 |------|------|---------|-------------|
 | `--rerank-port` | int | `8081` | Port for dedicated reranker TEI instance |
-| `--rerank-model` | string | `""` | Reranker model ID (empty = reranker disabled) |
+| `--rerank-model` | string | `""` | Reranker model ID (deprecated; empty = reranker disabled) |
 
-**Example:**
+**Legacy example:**
 ```bash
 ./tei-wrapper \
   --port 11434 \
@@ -390,7 +383,8 @@ If memory is constrained:
 
 1. **Use smaller reranker model:**
    ```bash
-   ./tei-wrapper --rerank-model cross-encoder/ms-marco-MiniLM-L-6-v2
+   # .code-scout.json: "rerank_model": "cross-encoder/ms-marco-MiniLM-L-6-v2"
+   ./tei-wrapper
    ```
 
 2. **Reduce max batch tokens** (embedding TEI):
@@ -429,13 +423,14 @@ curl http://localhost:11434/health | jq
 **Solutions:**
 
 1. **reranker.enabled = false:**
-   - Check `--rerank-model` flag is set when starting tei-wrapper
-   - Verify model name is not empty string
+   - Confirm `rerank_model` is set in `.code-scout.json` or `~/.code-scout/config.json`
+   - Check tei-wrapper logs for "Loaded config from:" to confirm it found your config
+   - If using legacy flags, add `--rerank-model` (deprecated)
 
 2. **reranker.healthy = false:**
    - Check tei-wrapper logs for reranker TEI startup errors
    - Verify port 8081 is not already in use: `lsof -i :8081`
-   - Try different model: `--rerank-model BAAI/bge-reranker-base`
+   - Try different model by updating `rerank_model` in `.code-scout.json`
 
 3. **rerank_model not in code-scout config:**
    - Add `"rerank_model": "BAAI/bge-reranker-base"` to `.code-scout.json`
@@ -450,7 +445,8 @@ curl http://localhost:11434/health | jq
 
 1. **Use higher-limit model (recommended):**
    ```bash
-   ./tei-wrapper --rerank-model BAAI/bge-reranker-v2-m3  # 8192 tokens
+   # .code-scout.json: "rerank_model": "BAAI/bge-reranker-v2-m3"  # 8192 tokens
+   ./tei-wrapper
    ```
 
 2. **Reduce chunk sizes** (advanced - requires code changes):
@@ -502,7 +498,8 @@ ps aux | grep -E "tei|wrapper"
 
 1. **Use smaller reranker model:**
    ```bash
-   ./tei-wrapper --rerank-model cross-encoder/ms-marco-MiniLM-L-6-v2  # 22M params
+   # .code-scout.json: "rerank_model": "cross-encoder/ms-marco-MiniLM-L-6-v2"  # 22M params
+   ./tei-wrapper
    ```
 
 2. **Reduce embedding model batch tokens:**
@@ -537,7 +534,8 @@ nvidia-smi
 
 2. **Use faster reranker model:**
    ```bash
-   ./tei-wrapper --rerank-model jinaai/jina-reranker-v1-turbo-en
+   # .code-scout.json: "rerank_model": "jinaai/jina-reranker-v1-turbo-en"
+   ./tei-wrapper
    ```
 
 3. **Lower `rerank_top_k`:**
@@ -549,7 +547,8 @@ nvidia-smi
 
 4. **CPU-only systems:** Use lightweight model:
    ```bash
-   ./tei-wrapper --rerank-model cross-encoder/ms-marco-MiniLM-L-6-v2
+   # .code-scout.json: "rerank_model": "cross-encoder/ms-marco-MiniLM-L-6-v2"
+   ./tei-wrapper
    ```
 
 ## Health Check Interpretation
@@ -573,6 +572,7 @@ curl http://localhost:11434/health | jq
   }
 }
 ```
+If `model` is empty, the reranker has not been loaded yet; run a search to trigger the first rerank request.
 
 **Status meanings:**
 
@@ -581,7 +581,7 @@ curl http://localhost:11434/health | jq
 | `status` | `"ok"` | Wrapper and embedding TEI healthy |
 | `status` | `"switching"` | Embedding model switch in progress (2-3s) |
 | `status` | `"unhealthy"` | Embedding TEI is down |
-| `reranker.enabled` | `true` | Reranker configured (--rerank-model set) |
+| `reranker.enabled` | `true` | Reranker configured (config or legacy flag) |
 | `reranker.enabled` | `false` | Reranker not configured |
 | `reranker.healthy` | `true` | Reranker TEI is responding |
 | `reranker.healthy` | `false` | Reranker TEI is down |
@@ -592,12 +592,17 @@ tei-wrapper logs to stdout/stderr. Watch for these messages:
 
 **Successful startup:**
 ```
-Starting embeddings TEI with model: nomic-ai/nomic-embed-text-v1.5
-Embeddings TEI started (PID: 12345, port: 8080)
+Starting TEI with model: nomic-ai/nomic-embed-text-v1.5
+TEI process started with model nomic-ai/nomic-embed-text-v1.5 (PID: 12345)
+TEI is ready!
+TEI wrapper listening on :11434
+```
+
+**First rerank request:**
+```
 Starting reranker TEI with model: BAAI/bge-reranker-base
 Reranker TEI started (PID: 12346, port: 8081)
-Both TEI instances ready!
-Wrapper listening on :11434
+Reranker TEI is ready!
 ```
 
 **Common errors:**

@@ -96,7 +96,7 @@ Start the wrapper with default settings:
 **Default configuration:**
 - Listen port: `11434` (Ollama-compatible)
 - TEI internal port: `8080`
-- Initial model: `nomic-ai/CodeRankEmbed`
+- Initial model: `nomic-ai/nomic-embed-text-v1.5` (from config defaults)
 - Idle preload: Disabled
 
 ### Command Line Options
@@ -112,12 +112,12 @@ Start the wrapper with default settings:
 | `--port` | int | `11434` | Wrapper listen port (Ollama-compatible) |
 | `--tei-port` | int | `8080` | TEI internal port |
 | `--tei-binary` | string | `text-embeddings-router` | Path to TEI binary |
-| `--model` | string | `nomic-ai/CodeRankEmbed` | Initial model to load |
+| `--model` | string | config `text_model` | Initial model to load (CLI overrides config) |
 | `--idle-preload` | bool | `false` | Enable idle-based model preloading |
 | `--idle-timeout` | duration | `30s` | Idle time before preloading preferred model |
 | `--max-batch-tokens` | int | `8192` | Maximum batch tokens (controls memory usage, lower = less RAM) |
 | `--rerank-port` | int | `8081` | Port for dedicated reranker TEI instance (optional) |
-| `--rerank-model` | string | `""` | Model ID for reranker (e.g., BAAI/bge-reranker-base). Empty = reranker disabled |
+| `--rerank-model` | string | `""` | Model ID for reranker (deprecated; prefer `.code-scout.json`) |
 
 ### Example Configurations
 
@@ -142,16 +142,24 @@ Start the wrapper with default settings:
   --tei-binary /opt/homebrew/bin/text-embeddings-router
 ```
 
-**With reranking enabled:**
+**With reranking enabled (config-first):**
 ```bash
-./tei-wrapper \
-  --model nomic-ai/nomic-embed-text-v1.5 \
-  --rerank-model BAAI/bge-reranker-base
+# .code-scout.json
+{
+  "endpoint": "http://localhost:11434",
+  "text_model": "nomic-ai/nomic-embed-text-v1.5",
+  "rerank_model": "BAAI/bge-reranker-base"
+}
+
+./tei-wrapper
 ```
 
-This starts two TEI instances:
-- Embedding TEI on port 8080 (hot-swappable models)
-- Reranker TEI on port 8081 (dedicated instance)
+The wrapper starts the embedding TEI immediately and starts the reranker TEI on the first `/rerank` request.
+
+**Legacy (deprecated):**
+```bash
+./tei-wrapper --rerank-model BAAI/bge-reranker-base
+```
 
 See [RERANKER_SETUP.md](RERANKER_SETUP.md) for complete reranking documentation.
 
@@ -244,7 +252,7 @@ Model switch in progress, please retry
 
 ### POST /rerank
 
-TEI-compatible endpoint for cross-encoder reranking. Only available if `--rerank-model` is configured.
+TEI-compatible endpoint for cross-encoder reranking. Available when `rerank_model` is configured (config or legacy flag); the reranker TEI starts on the first rerank request.
 
 **Request:**
 ```json
@@ -328,7 +336,7 @@ Health check endpoint with current embedding model and optional reranker status.
 ```
 
 **Reranker health fields:**
-- `enabled`: `true` if `--rerank-model` was configured at startup
+- `enabled`: `true` if `rerank_model` is configured (config or legacy flag)
 - `healthy`: `true` if reranker TEI instance is responding
 - `model`: The reranker model ID
 - `port`: The port the reranker TEI is running on
@@ -579,7 +587,7 @@ Memory usage scales quadratically with `--max-batch-tokens`. The default (8192) 
 
 ## Architecture: Dual TEI Instances
 
-When reranking is enabled (`--rerank-model` set), the wrapper manages two separate TEI processes:
+When reranking is enabled (via `rerank_model`), the wrapper manages two separate TEI processes:
 
 ```
 ┌─────────────────┐

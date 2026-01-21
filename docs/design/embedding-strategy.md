@@ -579,8 +579,30 @@ Reranking addresses this by:
 **Deployment Architecture**:
 - **tei-wrapper** manages both embedding and reranker TEI instances
 - **Single endpoint**: Code Scout communicates only with tei-wrapper (default: `http://localhost:11434`)
-- **Dual TEI instances**: tei-wrapper spawns separate TEI processes for embeddings (port 8080) and reranking (port 8081)
+- **Dual TEI instances**: tei-wrapper spawns embeddings TEI immediately and starts reranker TEI on-demand
 - **Auto-routing**: tei-wrapper routes `/v1/embeddings` to embeddings TEI and `/rerank` to reranker TEI
+
+**Dynamic Model Loading**:
+
+Both embedding and reranker models support dynamic loading and switching:
+
+1. **Configuration-Driven**: Models are configured in `.code-scout.json` (single source of truth)
+2. **On-Demand Loading**: Reranker models load automatically on first use
+3. **Runtime Switching**: Both embedding and reranker models can switch mid-session
+4. **Priority Order**: Request model > Config file > CLI flag (deprecated) > Default
+
+**Example**: Switching reranker models mid-session:
+```bash
+# Initial search uses model from config
+code-scout search "authentication"  # Uses BAAI/bge-reranker-base
+
+# Edit .code-scout.json to change rerank_model to BAAI/bge-reranker-large
+
+# Next search automatically switches models
+code-scout search "error handling"  # Uses BAAI/bge-reranker-large
+```
+
+The tei-wrapper handles all model lifecycle management (downloading, starting, stopping, switching) transparently.
 
 **Model Selection**:
 - **Recommended**: `BAAI/bge-reranker-base` (~278M params) - balanced speed and accuracy
@@ -596,12 +618,11 @@ cd cmd/tei-wrapper
 go build -o tei-wrapper .
 ./tei-wrapper \
   --port 11434 \
-  --model nomic-ai/nomic-embed-text-v1.5 \
-  --rerank-model BAAI/bge-reranker-base
+  --model nomic-ai/nomic-embed-text-v1.5
 
 # tei-wrapper automatically:
 # 1. Spawns TEI for embeddings on port 8080 (with hot-swapping)
-# 2. Spawns TEI for reranker on port 8081 (dedicated)
+# 2. Spawns TEI for reranker on port 8081 (on first /rerank request)
 # 3. Exposes unified API on port 11434
 ```
 

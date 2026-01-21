@@ -2,12 +2,15 @@
 
 This directory contains ephemeral planning documentation for Code Scout development.
 
-## Documentation Index
-This folder will contain at most 2 files at any given time
-- The [spec](SPECIFICATION.md) that is our current focus of development. 
-- The [implementation plan](IMPLEMENTATION_PLAN.md) for implementing that spec.  
+## Current Status
 
-NOTE: When working on a new feature, it's not uncommon for the [specification](SPECIFICATION.md) to be re-written as a permanent record in the [design](../design/) directory after the implementation is complete. 
+**No active planning documents** - All current features are implemented and documented.
+
+When new features are planned, this folder will contain at most 2 files:
+- A specification document describing the feature
+- An execution plan for implementing the spec
+
+When a feature is complete, the specification is typically converted to permanent documentation in the [design](../design/) folder, and the planning documents are deleted. 
 
 ## Document Conventions
 

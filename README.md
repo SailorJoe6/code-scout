@@ -209,6 +209,7 @@ This is a greenfield project currently in early development.
 For AI agents working on this project:
 - `AGENTS.md` - Contains workflow instructions for AI agents, including issue tracking with bd (beads)
 - `CLAUDE.md` - Symlink to `AGENTS.md` for Claude-specific references
+- `docs/guides/DEV_CONTAINER.md` - Dev container workflow (Docker/Podman/Apple container), including running `./ralph --container`
 
 **Note on Symlink**: `CLAUDE.md` is a symbolic link pointing to `AGENTS.md`. This works natively on Unix-like systems (Linux, macOS). On Windows, Developer Mode may need to be enabled for proper symlink support, otherwise the file may appear as a text file containing the target path.
 
@@ -246,7 +247,7 @@ Create a JSON file with the following structure:
 - `api_key`: (Optional) API key for authentication. Sent as `Authorization: Bearer <api_key>` header
 - `code_model`: Model name to use for code embeddings
 - `text_model`: Model name to use for documentation embeddings
-- `rerank_model`: (Optional) Cross-encoder model name for reranking (e.g., `BAAI/bge-reranker-base`). Requires tei-wrapper with `/rerank` endpoint (see [RERANKER_SETUP.md](docs/guides/RERANKER_SETUP.md))
+- `rerank_model`: (Optional) Cross-encoder model name for reranking (e.g., `BAAI/bge-reranker-base`). tei-wrapper loads the reranker model on-demand (see [RERANKER_SETUP.md](docs/guides/RERANKER_SETUP.md))
 - `rerank_top_k`: (Optional) Number of top results to rerank (defaults to search `--limit` when `rerank_model` is set)
 - `single_model_mode`: (Optional, default: `true`) Use single TEI process with model switching. Set to `false` for multi-model mode (runs separate TEI processes for each model simultaneously, higher memory but faster)
 
@@ -314,14 +315,13 @@ Note: `nomic-ai/nomic-embed-code` requires a powerful GPU and lots of RAM and is
 
 This configuration enables reranking for significantly improved search relevance. The tei-wrapper automatically manages both embedding and reranker TEI instances.
 
-**Start tei-wrapper with reranking:**
+**Start tei-wrapper (reranker loads on first request):**
 ```bash
 cd cmd/tei-wrapper
 go build -o tei-wrapper .
-./tei-wrapper \
-  --model nomic-ai/nomic-embed-text-v1.5 \
-  --rerank-model BAAI/bge-reranker-base
+./tei-wrapper
 ```
+The `--rerank-model` flag is deprecated; prefer configuring `rerank_model` in `.code-scout.json`.
 
 **Search with reranking:**
 ```bash
@@ -377,6 +377,7 @@ cat > .code-scout.json << 'EOF'
 }
 EOF
 ```
+Sample configs are in `.code-scout.json.local.example` (local TEI) and `.code-scout.json.external.example` (OpenAI-compatible providers).
 
 ### Cloud Provider Setup
 
@@ -387,7 +388,7 @@ Code Scout works with any OpenAI-compatible embedding API endpoint. This include
 1. **Choose a provider** that offers OpenAI-compatible embedding APIs
 2. **Create an account** and generate an API key
 3. **Check available models** - Ensure they offer code and text embedding models
-4. **Copy the sample config**: `cp .code-scout.json.example .code-scout.json`
+4. **Copy the sample config**: `cp .code-scout.json.external.example .code-scout.json`
 5. **Edit `.code-scout.json`** with your provider's endpoint, API key, and model names
 6. **Run indexing**:
    ```bash

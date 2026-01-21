@@ -1,0 +1,8 @@
+{
+  "endpoint": "https://api.provider.com/v1",
+  "api_key": "your-api-key",
+  "code_model": "provider-code-model",
+  "text_model": "provider-text-model",
+  "rerank_model": "provider-rerank-model",
+  "rerank_top_k": 50
+}
