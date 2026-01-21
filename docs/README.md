@@ -12,7 +12,9 @@ Read the [design index](design/README.md) now to better understand that folder's
 
 ## Developer Guids
 
-The [guides](guides/) folder contains detailed instructions for developers on how to set up code-scout for local developement and use.  Read the [guide index](guides/README.md) now to better understand that folder's contents.  
+The [guides](guides/) folder contains detailed instructions for developers on how to set up code-scout for local developement and use.  Read the [guide index](guides/README.md) now to better understand that folder's contents.
+For container workflows (including `./ralph --container`), see
+[guides/DEV_CONTAINER.md](guides/DEV_CONTAINER.md).
 
 ## Documentation Philosophy
 

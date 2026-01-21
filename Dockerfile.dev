@@ -1,0 +1,46 @@
+FROM golang:1.25.2-bookworm
+
+ARG USERNAME=dev
+ARG USER_UID=1000
+ARG USER_GID=1000
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    bash-completion \
+    build-essential \
+    ca-certificates \
+    cmake \
+    clang \
+    curl \
+    git \
+    jq \
+    libclang-dev \
+    libssl-dev \
+    pkg-config \
+    ripgrep \
+    rsync \
+    sudo \
+    && rm -rf /var/lib/apt/lists/*
+
+# Node.js is required for the codex CLI.
+RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
+    && apt-get update && apt-get install -y --no-install-recommends nodejs \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN npm install -g @openai/codex
+RUN npm install -g @anthropic-ai/claude-code
+RUN npm install -g @beads/bd
+
+RUN groupadd --gid ${USER_GID} ${USERNAME} \
+    && useradd --uid ${USER_UID} --gid ${USER_GID} -m ${USERNAME} \
+    && echo "${USERNAME} ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/${USERNAME} \
+    && chmod 0440 /etc/sudoers.d/${USERNAME}
+
+ENV GOPATH=/home/${USERNAME}/go \
+    PATH=/home/${USERNAME}/go/bin:/usr/local/go/bin:$PATH \
+    CGO_ENABLED=1
+
+WORKDIR /workspaces/code_scout
+
+USER ${USERNAME}

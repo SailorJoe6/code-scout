@@ -12,6 +12,14 @@ This project uses **lancedb-go**, which requires native C libraries and special 
 
 **Note:** You do NOT need Rust or a C compiler toolchain - the libraries are pre-built.
 
+### Docker Dev Container
+
+If you prefer a containerized development environment, see
+[docs/guides/DEV_CONTAINER.md](docs/guides/DEV_CONTAINER.md) for the Docker
+dev container setup (Go toolchain, codex CLI, and build dependencies).
+The guide also covers running `./ralph --container <name>` against a long-lived
+container via `podman exec`.
+
 ### Initial Setup
 
 #### 1. Download Native Libraries
@@ -51,6 +59,18 @@ The build now outputs a self-contained bundle for each platform under `dist/code
 TARGETS="darwin_arm64 linux_amd64" ./build.sh
 ```
 
+### Building Linux Bundles via Container
+
+If you need Linux binaries from macOS/Windows, use the dev container
+workflow in [docs/guides/DEV_CONTAINER.md](docs/guides/DEV_CONTAINER.md):
+
+```bash
+docker compose -f docker-compose.dev.yml run --rm dev \
+  TARGETS=linux_amd64 ./build.sh
+```
+
+The repo is bind-mounted, so `dist/` updates on the host.
+
 For each target, the script:
 - Sets `GOOS`, `GOARCH`, and the matching LanceDB CGO flags
 - Links in an rpath that points to the bundled `lib/` directory
@@ -85,6 +105,68 @@ tar -xzf dist/code-scout-darwin_arm64.tar.gz
 ```
 
 **Important:** Always launch the wrapper (`code-scout`), which ensures `DYLD_LIBRARY_PATH`/`LD_LIBRARY_PATH` points at the bundled `lib/` directory even inside sandboxed shells. You only need `code-scout.bin` if you are debugging without the wrapper, in which case export the library path manually.
+
+### Understanding the dist/ Folder
+
+After running `./build.sh`, the `dist/` folder contains everything needed to run code-scout:
+
+```
+dist/
+├── code-scout-darwin_arm64/          # macOS Apple Silicon bundle
+│   ├── code-scout                    # Wrapper script (run this!)
+│   ├── code-scout.bin                # Actual Go binary
+│   ├── tei-wrapper                   # TEI wrapper binary
+│   └── lib/
+│       └── liblancedb_go.dylib       # Native LanceDB library
+├── code-scout-darwin_amd64/          # macOS Intel bundle
+│   └── ...
+├── code-scout-linux_amd64/           # Linux x86_64 bundle
+│   └── ...
+├── code-scout-darwin_arm64.tar.gz    # Distributable archive
+├── code-scout-darwin_amd64.tar.gz
+└── code-scout-linux_amd64.tar.gz
+```
+
+**Why two executables?** The `code-scout` wrapper script sets the library path (`DYLD_LIBRARY_PATH` on macOS, `LD_LIBRARY_PATH` on Linux) before launching `code-scout.bin`. This is required because:
+- LanceDB uses native C libraries that must be found at runtime
+- Sandboxed environments (like some IDEs or CI systems) reset environment variables
+- The wrapper ensures the binary always finds its libraries regardless of how it's launched
+
+**Why a bundled tei-wrapper?** `tei-wrapper` is included for convenience so you can run it from the same bundle as the CLI. It still expects `text-embeddings-router` to be available on your PATH (or use `--tei-binary`).
+
+**Which platform bundle to use:**
+```bash
+# Detect your platform
+uname -sm
+# "Darwin arm64"  → use darwin_arm64
+# "Darwin x86_64" → use darwin_amd64
+# "Linux x86_64"  → use linux_amd64
+```
+
+### Dogfooding During Development
+
+When working on code-scout, use the built binary to search the codebase itself:
+
+```bash
+# Build first (if not already built)
+./build.sh
+
+# Detect platform and set an alias (optional but convenient)
+case "$(uname -sm)" in
+  "Darwin arm64")  CS=./dist/code-scout-darwin_arm64/code-scout ;;
+  "Darwin x86_64") CS=./dist/code-scout-darwin_amd64/code-scout ;;
+  "Linux x86_64")  CS=./dist/code-scout-linux_amd64/code-scout ;;
+esac
+
+# Index the repo
+$CS index
+
+# Search semantically
+$CS search "tree-sitter parsing"
+$CS search "embedding client" --json
+```
+
+**Tip:** After making code changes, rebuild with `./build.sh` and re-index to search your latest code.
 
 ### Development Workflow
 

@@ -69,41 +69,59 @@ build_target() {
     fi
 
     echo "Building for ${target}..."
-    rm -rf "${output_dir}"
-    rm -f "${archive_path}"
-    mkdir -p "${output_dir}/lib"
+    if ! (
+        set -euo pipefail
+        rm -rf "${output_dir}"
+        rm -f "${archive_path}"
+        mkdir -p "${output_dir}/lib"
 
-    export GOOS="${os}"
-    export GOARCH="${arch}"
-    export CGO_ENABLED=1
-    export CGO_CFLAGS="-I${REPO_ROOT}/include"
+        export GOOS="${os}"
+        export GOARCH="${arch}"
+        export CGO_ENABLED=1
+        export CGO_CFLAGS="-I${REPO_ROOT}/include"
 
-    if [[ "${os}" == "darwin" ]]; then
-        export CGO_LDFLAGS="-L${lib_path} -llancedb_go -framework Security -framework CoreFoundation -Wl,-rpath,@executable_path/../lib"
-    else
-        export CGO_LDFLAGS="-L${lib_path} -llancedb_go -Wl,-rpath,\\\$ORIGIN/../lib"
+        if [[ "${os}" == "darwin" ]]; then
+            export CGO_LDFLAGS="-L${lib_path} -llancedb_go -framework Security -framework CoreFoundation -Wl,-rpath,@executable_path/../lib"
+        else
+            export CGO_LDFLAGS="-L${lib_path} -llancedb_go -Wl,-rpath,\\\$ORIGIN/../lib"
+        fi
+
+        go build -o "${output_dir}/code-scout.bin" ./cmd/code-scout
+        go build -o "${output_dir}/tei-wrapper" ./cmd/tei-wrapper
+        rsync -a "${lib_path}/" "${output_dir}/lib/"
+        create_wrapper "${os}" "${output_dir}"
+
+        tar -czf "${archive_path}" -C "${DIST_DIR}" "${bundle_name}"
+    ); then
+        echo "✗ Build failed for ${target}"
+        return 1
     fi
-
-    go build -o "${output_dir}/code-scout.bin" ./cmd/code-scout
-    rsync -a "${lib_path}/" "${output_dir}/lib/"
-    create_wrapper "${os}" "${output_dir}"
-
-    tar -czf "${archive_path}" -C "${DIST_DIR}" "${bundle_name}"
 
     echo "✓ Output directory: ${output_dir}"
     echo "  Archive: ${archive_path}"
 }
 
 if [[ -n "${TARGETS:-}" ]]; then
+    failures=()
     for target in ${TARGETS}; do
-        build_target "${target}"
+        if ! build_target "${target}"; then
+            failures+=("${target}")
+        fi
     done
 else
+    failures=()
     for dir in "${LIB_DIR}"/*; do
         [[ -d "${dir}" ]] || continue
         target="$(basename "${dir}")"
-        build_target "${target}"
+        if ! build_target "${target}"; then
+            failures+=("${target}")
+        fi
     done
+fi
+
+if (( ${#failures[@]} )); then
+    echo "Builds completed with failures: ${failures[*]}"
+    exit 1
 fi
 
 echo "All builds complete. Archives are in ${DIST_DIR}/"
