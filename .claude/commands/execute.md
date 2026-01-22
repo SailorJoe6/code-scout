@@ -6,19 +6,23 @@ Study the following files in order to understand the project:
 
 Pay special attention to instructions about using the Make files!
 
-After you have studied those files, study the [plans](docs/planning/README.md) and read any other docs in the `docs/planning/` folder.  you should find a file `docs/planning/EXECUTION_PLAN.md`.  That file describes the implementation plan for `docs/planning/SPECIFICATION.md`.  If either of those files are missing, STOP!  Tell me which file(s) is/are missing and await further instructions.
+After you have studied those files, study the [planning index](docs/planning/README.md) and read any other docs in the `docs/planning/` folder.  In that file, you should find [the plan](docs/planning/EXECUTION_PLAN.md).  The plan describes the implementation steps for `docs/planning/SPECIFICATION.md`.  If either of those files are missing, STOP!  Tell me which file(s) is/are missing and await further instructions.
 
-Assuming both of those files exist, study them!  Finally run `bd prime`.  This will get you up to speed on where we are, what we are working on and what's left to do.  Some of the work may have been completed in previous sections.  Audit the code against the spec and the plan to deterine what work is left.  
+Assuming both of those files exist, study them!  Finally run `bd prime`.  This will get you up to speed on where we are, what we are working on and what's left to do.  There may be some tickets in beads related to the plan, and you may need to create beads tickets as you implement the plan.
 
-There may be tickets in beads associated with the spec and plan, and you may need to create tickets as you work the plan.  There may be tickets associated with other work, not part of this spec and plan.  You should focus only on tickets and work related to this plan!  
+There may be some tickets that are not related to the plan.  Focus on the plan and plan related tickets.
 
-If you find a ticket that is not closed in beads, but you find the work is all the way done, you should check to ensure proper documentation and tests exist for the work, and if everything is perfect you should close that ticket and ensure the plan represents the finished work.  
+Some of the work may have been completed in previous sessions.  Audit the code against the spec and the plan to deterine what work is left.
 
-If there is no work left to do on this spec/plan, then check if the spec has been completely converted to a document (or set of documents) in the docs folder describing the new state of this code.  If that hasn't been done, then converting the spec into documentation is your next task.  
+If you find a ticket that is not closed in beads, but you find the work for the ticket is all the way done, you should check to ensure proper documentation and tests exist for the finished work, and if everything is perfect you should close that ticket and ensure the plan represents the finished work.
 
-If there are no more related tasks, and the execution plan for this spec is truly done, delete both the `docs/planning/SPECIFICATION.md` and the `docs/planning/EXECUTION_PLAN.md` files, then report back to the user that there's no related work left to do and await further instructions.    
+If there is no work left to do on this plan, then check if the spec has been completely converted to a document (or set of documents) in the docs folder describing the new state of this code.  If that hasn't been done, then doing so is your next task.
 
-Assuming there still is work left to do on this spec/plan, then do the most imporant thing to move the plan forward.  Pick the one most important next task and do it.  You may use up to 10 subagents in any way you see fit.  If you run into any blockers, try to remove them.  If you cannot remove them, clearly document that you are blocked in `docs/planning/EXECUTION_PLAN.md`.  Also, ensure you tell me you're blocked as well.  Also, you should have a beads task for all your work, so mark your beads task as blocked too.   
+If the plan is truly finished and there is nothing left to do on this plan, delete both the `docs/planning/SPECIFICATION.md` and the `docs/planning/EXECUTION_PLAN.md` files, then report back to the user that there's nothing left to do and await further instructions.
+
+Assuming there still is work left to do to implement this spec, then do the most imporant thing to move the project forward.  Pick the one most important next task and do it.  You may use up to 10 subagents in any way you see fit.
+
+If you find yourself blocked, try to unblock yourself.  If you cannot unblock yourself, then update [the plan](docs/planning/EXECUTION_PLAN.md) to clearly state what the blockers are.  You should always have beads issues for all your tasks, so mark your beads issues as blocked as well.
 
 Remember to keep the planning docs and beads up to date as you work on the task.  
 
