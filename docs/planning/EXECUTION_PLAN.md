@@ -325,8 +325,15 @@ exit
 
 Once validation succeeds:
 
-1. **Update this execution plan** - Mark validation as complete
-2. **Close beads issue** - Close `code_context-q4o` with success notes
-3. **Update specification** - Mark spec as fully implemented
-4. **Commit and push** - Land the validated implementation
-5. **Update README** - Confirm Linux ARM64 as supported platform
+1. ✅ **Update this execution plan** - Marked validation as complete (Status section updated)
+2. ✅ **Close beads issues** - Closed `code_context-q4o` (validation task), `code_context-epq` (epic), `code_context-w99` (orphaned TEI bug), `code_context-z63` (port conflict fix)
+3. ✅ **Update specification** - Marked spec as fully implemented in [SPECIFICATION.md](SPECIFICATION.md)
+4. ⏳ **Commit and push** - 6 commits created and ready:
+   - `27ebc62` - Log rerank endpoint at startup
+   - `767944a` - Complete Linux ARM64 build support with validation
+   - `bd07cef` - Fix orphaned text-embeddings-router processes
+   - `03f6d87` - Change tei-wrapper default port from 11434 to 11435
+   - `abfaaa1` - Merge branch 'main'
+   - `edcb85d` - Beads sync
+   - **Status**: Push requires git credentials to be configured
+5. ⏳ **Update README** - Verify Linux ARM64 is listed as supported platform
