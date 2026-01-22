@@ -33,6 +33,7 @@ The ralph workflow currently exists in the code_scout project with these compone
 - Supports `--container <name>` to exec into a running dev container
 - Supports `--callback <script>` to run a script after each pass
 - Uses `CONTAINER_RUNTIME` (defaults to docker) for container operations
+- No handoff context between passes
 
 ## Problems with Current Implementation
 
@@ -41,6 +42,7 @@ The ralph workflow currently exists in the code_scout project with these compone
 3. **No configuration** - No way to customize paths or behavior per-project without editing the script
 4. **Scattered files** - Prompt files in `.claude/commands/`, planning docs in `docs/planning/`
 5. **Container assumptions** - Assumes VS Code dev container path structure (`/workspaces/code_scout`)
+6. **No handoff between passes** - No mechanism to reconnect to the AI session and provide handoff context after each execution pass
 
 ## Goals
 
@@ -108,6 +110,7 @@ Behavior flags (commented out in `.env.example`):
   - `ralph/prompts/design.md`
   - `ralph/prompts/plan.md`
   - `ralph/prompts/execute.md`
+  - `ralph/prompts/handoff.md` - Called at end of each pass to reconnect to session and provide handoff context
 - Log files (always in project root):
   - `ERROR_LOG="ralph-error.md"`
   - `OUT_LOG="ralph-output.md"`
@@ -298,6 +301,31 @@ ln -s ../../ralph/prompts/execute.md .claude/commands/execute.md
 6. **Remove old files**
    - Delete `ralph-script` backup from project root (keep for now during transition)
    - Delete `.claude/commands/*.md` files (replaced by symlinks)
+
+## Handoff Feature
+
+**Purpose:** After each execution pass, ralph reconnects to the most recent AI session and runs a handoff prompt to provide context for the next iteration or for future sessions.
+
+**When it runs:** ONLY during the execute phase (not design or plan phases)
+
+**How it works:**
+1. At the end of each pass through the execute loop, after the callback (if any)
+2. Ralph reconnects to the most recent AI session using session continuation flags
+3. Ralph runs the handoff prompt (`ralph/prompts/handoff.md`)
+4. The AI provides a summary, status update, or other handoff information
+
+**Session continuation commands:**
+- **Claude:** `claude --continue` or `claude -c` reconnects to the most recent session
+- **Codex:** `codex resume --last` reconnects to the most recent session
+
+**Handoff prompt:**
+- Location: `ralph/prompts/handoff.md` (hardcoded, project-specific)
+- Template: `ralph/prompts/handoff.example.md` (committed to ralph repository)
+- Like other prompts, users must copy from .example.md and customize for their project
+
+**Error handling:**
+- If handoff command fails, log error but continue (don't stop the workflow)
+- Handoff failures are non-fatal
 
 ## Container Working Directory Behavior
 

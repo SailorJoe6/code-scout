@@ -52,6 +52,7 @@ The original `ralph` script has been renamed to `ralph-script` to avoid naming c
    cp /Users/jlanders/gitlab_local/code_scout/.claude/commands/design.md prompts/design.example.md
    cp /Users/jlanders/gitlab_local/code_scout/.claude/commands/plan.md prompts/plan.example.md
    cp /Users/jlanders/gitlab_local/code_scout/.claude/commands/execute.md prompts/execute.example.md
+   cp /Users/jlanders/gitlab_local/code_scout/.claude/commands/handoff.md prompts/handoff.example.md
    ```
 
    **CRITICAL:** Prompts are project-specific (they reference DEVELOPERS.md, docs/README.md, etc.). The `.example.md` files serve as templates. Users must copy and customize them for their project. The actual `.md` files will be gitignored.
@@ -79,7 +80,7 @@ The original `ralph` script has been renamed to `ralph-script` to avoid naming c
    ls -la
    # Expected: .git/, prompts/, .gitignore
    ls prompts/
-   # Expected: design.example.md, plan.example.md, execute.example.md
+   # Expected: design.example.md, plan.example.md, execute.example.md, handoff.example.md
    ```
 
 **Critical Files:**
@@ -87,6 +88,7 @@ The original `ralph` script has been renamed to `ralph-script` to avoid naming c
 - `ralph/prompts/design.example.md` (template)
 - `ralph/prompts/plan.example.md` (template)
 - `ralph/prompts/execute.example.md` (template)
+- `ralph/prompts/handoff.example.md` (template)
 
 ---
 
@@ -281,6 +283,48 @@ The original `ralph` script has been renamed to `ralph-script` to avoid naming c
      exit 1
    fi
    ```
+
+8. **Add handoff feature** (add at the end of the while loop, after callback but before done):
+
+   Add hardcoded handoff prompt path at the top with other prompt paths:
+   ```bash
+   # Hardcoded prompt paths (must match .gitignore pattern)
+   DESIGN_PROMPT="ralph/prompts/design.md"
+   PLAN_PROMPT="ralph/prompts/plan.md"
+   EXECUTE_PROMPT="ralph/prompts/execute.md"
+   HANDOFF_PROMPT="ralph/prompts/handoff.md"
+   ```
+
+   Add handoff logic at end of loop (ONLY for execute phase):
+   ```bash
+   # At end of while loop, after callback section:
+
+   # Run handoff (execute phase only)
+   if [[ "$PROMPT" == "$EXECUTE_PROMPT" ]]; then
+     if [[ -f "$HANDOFF_PROMPT" ]]; then
+       echo "Running handoff..."
+       handoff_text="$(cat "$HANDOFF_PROMPT")"
+
+       if [[ $USE_CODEX -eq 1 ]]; then
+         if [[ -n "$CONTAINER_NAME" ]]; then
+           set_container_exec_flags 1
+           container_exec codex resume --last "$handoff_text" 2>&1 || echo "Warning: Handoff failed (non-fatal)"
+         else
+           codex resume --last "$handoff_text" 2>&1 || echo "Warning: Handoff failed (non-fatal)"
+         fi
+       else
+         if [[ -n "$CONTAINER_NAME" ]]; then
+           set_container_exec_flags 1
+           container_exec claude --continue "$handoff_text" 2>&1 || echo "Warning: Handoff failed (non-fatal)"
+         else
+           claude --continue "$handoff_text" 2>&1 || echo "Warning: Handoff failed (non-fatal)"
+         fi
+       fi
+     fi
+   fi
+   ```
+
+   **Important:** Handoff failures are non-fatal (use `||` to catch errors and continue)
 
 **Critical Changes:**
 - Line 8+ (after line 7): Add .env loading
