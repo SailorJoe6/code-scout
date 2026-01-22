@@ -6,11 +6,11 @@ Study the following files in order to understand the project:
 
 Pay special attention to instructions about using the Make files!
 
-After you have studied those files, study the [planning index](docs/planning/README.md) and read any other docs in the `docs/planning/` folder.  In that file, you should find [the plan](docs/planning/EXECUTION_PLAN.md).  The plan describes the implementation steps for `docs/planning/SPECIFICATION.md`.  If either of those files are missing, STOP!  Tell me which file(s) is/are missing and await further instructions.
+Finally run `bd prime` to understand our beads workflow.  
 
-Assuming both of those files exist, study them!  Finally run `bd prime`.  This will get you up to speed on where we are, what we are working on and what's left to do.  There may be some tickets in beads related to the plan, and you may need to create beads tickets as you implement the plan.
+Next, study the [planning index](docs/planning/README.md) and read any other docs in the `docs/planning/` folder.  In that file, you should find [the plan](docs/planning/EXECUTION_PLAN.md).  The plan describes the implementation steps for the current [spec doc](docs/planning/SPECIFICATION.md).  Study both of these files.   This will get you up to speed on where we are, what we are working on and what's left to do.  
 
-There may be some tickets that are not related to the plan.  Focus on the plan and plan related tickets.
+There may be some tickets in beads related to the plan, and you may need to create beads tickets as you implement the plan.  There may be some tickets that are not related to the plan.  Focus on the plan and plan related tickets.
 
 Some of the work may have been completed in previous sessions.  Audit the code against the spec and the plan to deterine what work is left.
 
