@@ -194,6 +194,17 @@ else
     echo "No existing tei-wrapper processes found"
 fi
 
+# Kill orphaned TEI child processes that may be blocking ports
+echo "Checking for orphaned text-embeddings-router processes..."
+if pgrep -f "text-embeddings-router" > /dev/null 2>&1; then
+    echo "Found orphaned text-embeddings-router process(es), killing all..."
+    pkill -9 -f "text-embeddings-router" || true
+    sleep 1
+    echo "✓ Killed orphaned TEI processes"
+else
+    echo "No orphaned TEI processes found"
+fi
+
 mkdir -p "${DIST_DIR}"
 
 # Build for current platform (provides natural delay for process cleanup)
