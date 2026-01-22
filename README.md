@@ -161,7 +161,7 @@ Create a JSON file with the following structure:
   "text_model": "nomic-ai/nomic-embed-text-v1.5",
   "rerank_model": "",
   "rerank_top_k": 0,
-  "single_model_mode": true,
+  "single_model_mode": false,
   "text_tei_port": 8080,
   "code_tei_port": 8082,
   "rerank_port": 8081
@@ -175,7 +175,7 @@ Create a JSON file with the following structure:
 - `text_model`: Model name to use for documentation embeddings
 - `rerank_model`: (Optional) Cross-encoder model name for reranking (e.g., `BAAI/bge-reranker-base`). tei-wrapper loads the reranker model on-demand (see [RERANKER_SETUP.md](docs/guides/RERANKER_SETUP.md))
 - `rerank_top_k`: (Optional) Number of top results to rerank (defaults to search `--limit` when `rerank_model` is set)
-- `single_model_mode`: (Optional, default: `true`) Use single TEI process with model switching. Set to `false` for multi-model mode (runs separate TEI processes for each model simultaneously, higher memory but faster)
+- `single_model_mode`: (Optional, default: `false`) Use single TEI process with model switching. Set to `true` for single-model mode, or `false` for multi-model mode (runs separate TEI processes for each model simultaneously, higher memory but faster)
 - `text_tei_port`: (Optional, default: `8080`) TEI port for text embeddings (multi-model mode)
 - `code_tei_port`: (Optional, default: `8082`) TEI port for code embeddings (multi-model mode)
 - `rerank_port`: (Optional, default: `8081`) TEI port for the reranker instance
@@ -184,7 +184,7 @@ Defaults target the TEI wrapper (CodeRankEmbed + nomic-embed-text-v1.5).
 
 ### Example Configurations
 
-**Default (TEI Wrapper Local - Single Model Mode)**:
+**Default (TEI Wrapper Local - Multi-Model Mode)**:
 ```json
 {
   "endpoint": "http://localhost:11435",
@@ -192,7 +192,7 @@ Defaults target the TEI wrapper (CodeRankEmbed + nomic-embed-text-v1.5).
   "text_model": "nomic-ai/nomic-embed-text-v1.5",
   "rerank_model": "",
   "rerank_top_k": 0,
-  "single_model_mode": true
+  "single_model_mode": false
 }
 ```
 

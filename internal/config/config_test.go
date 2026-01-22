@@ -26,8 +26,8 @@ func TestDefault(t *testing.T) {
 	}
 	if cfg.SingleModelMode == nil {
 		t.Errorf("expected default single_model_mode to be set, got nil")
-	} else if *cfg.SingleModelMode != true {
-		t.Errorf("expected default single_model_mode to be true, got %v", *cfg.SingleModelMode)
+	} else if *cfg.SingleModelMode != false {
+		t.Errorf("expected default single_model_mode to be false, got %v", *cfg.SingleModelMode)
 	}
 }
 

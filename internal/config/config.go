@@ -18,17 +18,20 @@ type Config struct {
 	TextModel       string `json:"text_model"`
 	RerankModel     string `json:"rerank_model,omitempty"`      // Model name for reranking (enables reranking if set)
 	RerankTopK      int    `json:"rerank_top_k,omitempty"`
-	SingleModelMode *bool  `json:"single_model_mode,omitempty"` // Use single TEI process with model switching (default: true)
+	SingleModelMode *bool  `json:"single_model_mode,omitempty"` // Use single TEI process with model switching (default: false)
+	TextTEIPort     int    `json:"text_tei_port,omitempty"`     // TEI port for text embeddings (multi-model mode, default: 8080)
+	CodeTEIPort     int    `json:"code_tei_port,omitempty"`     // TEI port for code embeddings (multi-model mode, default: 8082)
+	RerankPort      int    `json:"rerank_port,omitempty"`       // TEI port for reranker instance (default: 8081)
 }
 
 // Default returns the default configuration
 func Default() *Config {
-	singleModelMode := true
+	singleModelMode := false
 	cfg := &Config{
 		Endpoint:        "http://localhost:11434",
 		CodeModel:       "nomic-ai/CodeRankEmbed",
 		TextModel:       "nomic-ai/nomic-embed-text-v1.5",
-		SingleModelMode: &singleModelMode, // Default to single-model mode (TEI wrapper with model switching)
+		SingleModelMode: &singleModelMode, // Default to multi-model mode (separate TEI instances for code/text)
 	}
 	return cfg
 }
@@ -143,6 +146,16 @@ func mergeConfig(dst, src *Config) {
 	// Merge SingleModelMode if explicitly set (non-nil)
 	if src.SingleModelMode != nil {
 		dst.SingleModelMode = src.SingleModelMode
+	}
+	// Merge port configuration
+	if src.TextTEIPort != 0 {
+		dst.TextTEIPort = src.TextTEIPort
+	}
+	if src.CodeTEIPort != 0 {
+		dst.CodeTEIPort = src.CodeTEIPort
+	}
+	if src.RerankPort != 0 {
+		dst.RerankPort = src.RerankPort
 	}
 }
 
