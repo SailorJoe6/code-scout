@@ -17,14 +17,10 @@ This directory contains setup and usage guides for Code Scout users and develope
   - Idle preloading optimization
   - Dual TEI instance management (embeddings + reranker)
 
-- **[OLLAMA_SETUP.md](OLLAMA_SETUP.md)** - Using Ollama as an alternative embedding provider
-  - Simplest setup option
-  - Model installation and configuration
-  - Concurrency limitations
-
 ### Development Environment
 
 - **[DEV_CONTAINER.md](DEV_CONTAINER.md)** - Docker-based development container setup
+- **[LINUX_ARM64_BUILD.md](LINUX_ARM64_BUILD.md)** - Building LanceDB native libraries on Linux ARM64
 
 ### Advanced Features
 
@@ -50,9 +46,6 @@ This directory contains setup and usage guides for Code Scout users and develope
 2. Use [TEI_WRAPPER.md](TEI_WRAPPER.md) - Set up automatic model switching
 3. Optionally add [RERANKER_SETUP.md](RERANKER_SETUP.md) - Improve search quality
 
-**Minimal setup:**
-1. Use [OLLAMA_SETUP.md](OLLAMA_SETUP.md) - Simplest option, works everywhere
-
 **Production deployment:**
 1. Use TEI with wrapper ([TEI_WRAPPER.md](TEI_WRAPPER.md))
 2. Enable reranking ([RERANKER_SETUP.md](RERANKER_SETUP.md))
@@ -62,7 +55,7 @@ This directory contains setup and usage guides for Code Scout users and develope
 
 Code Scout uses a two-stage semantic search pipeline:
 
-1. **Embedding Generation** (TEI or Ollama)
+1. **Embedding Generation** (TEI)
    - Code model: `nomic-ai/CodeRankEmbed`
    - Documentation model: `nomic-ai/nomic-embed-text-v1.5`
 

@@ -47,6 +47,13 @@ This creates:
 
 This fixes the install_name to use `@rpath` instead of the hardcoded CI build paths.
 
+#### Linux ARM64 Native Libraries
+
+Linux ARM64 does not have prebuilt LanceDB artifacts. The build scripts can
+automatically build them from source when needed. See
+[docs/guides/LINUX_ARM64_BUILD.md](docs/guides/LINUX_ARM64_BUILD.md) for the
+full workflow, dependency list, and overrides.
+
 #### 2. Build the Project (per-platform bundles)
 
 The build now outputs a self-contained bundle for each platform under `dist/code-scout-<os>_<arch>/` and also produces a matching `code-scout-<os>_<arch>.tar.gz` archive for distribution.
@@ -279,8 +286,7 @@ code-scout/
 │   └── guides/            # User documentation
 │       ├── TEI_SETUP.md           # TEI installation guide
 │       ├── TEI_WRAPPER.md         # TEI wrapper guide
-│       ├── BACKGROUND_DAEMON.md   # Background daemon guide
-│       └── OLLAMA_SETUP.md        # Ollama setup guide
+│       └── BACKGROUND_DAEMON.md   # Background daemon guide
 ├── include/               # C headers (from LanceDB)
 ├── lib/                   # Native libraries (from LanceDB)
 ├── .code-scout/           # Local vector database (runtime)
@@ -304,7 +310,7 @@ go build -o tei-wrapper .
 ./tei-wrapper
 
 # With custom settings
-./tei-wrapper --port 8081 --model nomic-ai/nomic-embed-code --idle-preload
+./tei-wrapper --port 8081 --model nomic-ai/CodeRankEmbed --idle-preload
 ```
 
 **Run tests:**

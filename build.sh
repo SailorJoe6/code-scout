@@ -4,6 +4,65 @@ set -euo pipefail
 REPO_ROOT="$(pwd)"
 LIB_DIR="${REPO_ROOT}/lib"
 DIST_DIR="${REPO_ROOT}/dist"
+CACHE_DIR="${REPO_ROOT}/.cache/go"
+SCRIPTS_DIR="${REPO_ROOT}/scripts"
+LANCEDB_LINUX_ARM64_SCRIPT="${SCRIPTS_DIR}/build-lancedb-linux-arm64.sh"
+
+detect_host_target() {
+    local os
+    local arch
+    os="$(uname -s | tr '[:upper:]' '[:lower:]')"
+    arch="$(uname -m)"
+
+    case "${arch}" in
+        x86_64)
+            arch="amd64"
+            ;;
+        aarch64|arm64)
+            arch="arm64"
+            ;;
+    esac
+
+    echo "${os}_${arch}"
+}
+
+validate_linux_arm64_libs() {
+    local lib_path="${LIB_DIR}/linux_arm64"
+
+    if [[ ! -f "${lib_path}/liblancedb_go.a" || ! -f "${lib_path}/liblancedb_go.so" ]]; then
+        return 1
+    fi
+
+    if command -v ar >/dev/null 2>&1; then
+        if ! ar t "${lib_path}/liblancedb_go.a" >/dev/null 2>&1; then
+            return 1
+        fi
+    fi
+
+    if command -v readelf >/dev/null 2>&1; then
+        local machine
+        machine="$(readelf -h "${lib_path}/liblancedb_go.so" | awk -F: '/Machine:/ {gsub(/^[[:space:]]+/, "", $2); print $2}')"
+        if [[ "${machine}" != *"AArch64"* ]]; then
+            return 1
+        fi
+    fi
+
+    return 0
+}
+
+ensure_linux_arm64_libs() {
+    if validate_linux_arm64_libs; then
+        return
+    fi
+
+    if [[ ! -x "${LANCEDB_LINUX_ARM64_SCRIPT}" ]]; then
+        echo "Missing Linux ARM64 build helper at ${LANCEDB_LINUX_ARM64_SCRIPT}"
+        exit 1
+    fi
+
+    echo "Linux ARM64 libraries missing or invalid; building from source..."
+    "${LANCEDB_LINUX_ARM64_SCRIPT}"
+}
 
 if [[ ! -d "${LIB_DIR}" ]]; then
     echo "Missing lib directory at ${LIB_DIR}"
@@ -63,6 +122,10 @@ build_target() {
     local output_dir="${DIST_DIR}/${bundle_name}"
     local archive_path="${DIST_DIR}/${bundle_name}.tar.gz"
 
+    if [[ "${target}" == "linux_arm64" ]]; then
+        ensure_linux_arm64_libs
+    fi
+
     if [[ ! -d "${lib_path}" ]]; then
         echo "Skipping ${target}: no native libraries at ${lib_path}"
         return
@@ -74,16 +137,23 @@ build_target() {
         rm -rf "${output_dir}"
         rm -f "${archive_path}"
         mkdir -p "${output_dir}/lib"
+        mkdir -p "${CACHE_DIR}/pkg/mod" "${CACHE_DIR}/build"
 
         export GOOS="${os}"
         export GOARCH="${arch}"
         export CGO_ENABLED=1
         export CGO_CFLAGS="-I${REPO_ROOT}/include"
+        export GOMODCACHE="${CACHE_DIR}/pkg/mod"
+        export GOCACHE="${CACHE_DIR}/build"
 
         if [[ "${os}" == "darwin" ]]; then
             export CGO_LDFLAGS="-L${lib_path} -llancedb_go -framework Security -framework CoreFoundation -Wl,-rpath,@executable_path/../lib"
         else
             export CGO_LDFLAGS="-L${lib_path} -llancedb_go -Wl,-rpath,\\\$ORIGIN/../lib"
+        fi
+
+        if [[ -f "${lib_path}/liblancedb_go.a" ]]; then
+            ranlib "${lib_path}/liblancedb_go.a"
         fi
 
         go build -o "${output_dir}/code-scout.bin" ./cmd/code-scout
@@ -101,23 +171,30 @@ build_target() {
     echo "  Archive: ${archive_path}"
 }
 
+failures=()
+targets=()
+
 if [[ -n "${TARGETS:-}" ]]; then
-    failures=()
     for target in ${TARGETS}; do
-        if ! build_target "${target}"; then
-            failures+=("${target}")
-        fi
+        targets+=("${target}")
     done
 else
-    failures=()
     for dir in "${LIB_DIR}"/*; do
         [[ -d "${dir}" ]] || continue
-        target="$(basename "${dir}")"
-        if ! build_target "${target}"; then
-            failures+=("${target}")
-        fi
+        targets+=("$(basename "${dir}")")
     done
+
+    host_target="$(detect_host_target)"
+    if [[ "${host_target}" == "linux_arm64" && ! -d "${LIB_DIR}/${host_target}" ]]; then
+        targets+=("${host_target}")
+    fi
 fi
+
+for target in "${targets[@]}"; do
+    if ! build_target "${target}"; then
+        failures+=("${target}")
+    fi
+done
 
 if (( ${#failures[@]} )); then
     echo "Builds completed with failures: ${failures[*]}"

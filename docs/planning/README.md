@@ -4,7 +4,7 @@ This directory contains ephemeral planning documentation for Code Scout developm
 
 ## Current Status
 
-**No active planning documents** - All current features are implemented and documented.
+**Active planning document** - Linux ARM64 native library build flow is in progress.
 
 When new features are planned, this folder will contain at most 2 files:
 - A specification document describing the feature
