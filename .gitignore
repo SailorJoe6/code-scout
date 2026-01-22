@@ -42,7 +42,8 @@ dist/
 .cache/
 .code-scout.json.dgx_spark.ollama
 
-# Ralph logs
-ralph-error.md
-ralph-output.md
+# logs
 tei-wrapper.log
+
+# ralph wiggham
+ralph/

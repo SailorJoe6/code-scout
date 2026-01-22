@@ -96,7 +96,7 @@ claude --help
 bd --help
 ```
 
-You can also run the existing wrapper script with `./ralph --codex` (host) or
+You can also run the existing wrapper script with `./ralph/start --codex` (host) or
 use the container workflow below.
 The container installs `claude` via npm (upstream npm install is deprecated,
 but it is the most reliable non-interactive option for containers).
@@ -126,9 +126,9 @@ podman exec -it code-scout-dev /bin/bash
 Run the wrapper from the host. It uses `podman exec`, so exit codes propagate:
 
 ```bash
-./ralph --container code-scout-dev --codex
+./ralph/start --container code-scout-dev --codex
 # or for Claude:
-./ralph --container code-scout-dev
+./ralph/start --container code-scout-dev
 ```
 
 When finished, stop and remove the container:
