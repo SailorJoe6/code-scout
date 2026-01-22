@@ -198,6 +198,7 @@ func main() {
 	// Start server
 	log.Printf("TEI wrapper listening on :%d", *port)
 	log.Printf("OpenAI-compatible endpoint: http://localhost:%d/v1/embeddings", *port)
+	log.Printf("Rerank endpoint: http://localhost:%d/rerank (set rerank_model in config to enable)", *port)
 	if err := httpServer.ListenAndServe(); err != http.ErrServerClosed {
 		log.Fatalf("Server failed: %v", err)
 	}
