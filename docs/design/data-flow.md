@@ -124,7 +124,7 @@ Result: Only generate 983 embeddings
 **Code**: `computeContentHash()` at cmd/code-scout/index.go:23-26
 
 ### 5. Embedding Generation
-**Component**: Embeddings (`internal/embeddings/ollama.go`)
+**Component**: Embeddings (`internal/embeddings/client.go`)
 
 ```
 Input: Unique chunks only (from hash deduplication)
@@ -136,7 +136,7 @@ Process: Worker Pool Pattern:
 
            For each worker (goroutine):
                chunk = <-jobs
-               POST /api/embeddings to Ollama
+               POST /v1/embeddings to TEI wrapper
                embedding = response.Embedding
                results <- embedding
        ↓
@@ -146,7 +146,7 @@ Output: [][]float64 (embeddings for unique chunks)
 
 API call example:
 ```json
-POST http://localhost:11434/api/embeddings
+POST http://localhost:11435/api/embeddings
 {
   "model": "code-scout-code",
   "prompt": "func Add(a, b int) int {\n  return a + b\n}"
@@ -159,7 +159,7 @@ Response:
 ```
 
 **Code**:
-- `OllamaClient.Embed()` at internal/embeddings/ollama.go:46-78
+- `OpenAIClient.Embed()` at internal/embeddings/client.go:151-206
 - Worker pool at cmd/code-scout/index.go:169-224
 
 ### 6. Vector Storage
@@ -234,7 +234,7 @@ Metadata structure:
 ```
 Input: Query string (e.g., "error handling")
        ↓
-Process: POST to Ollama /api/embeddings
+Process: POST to /v1/embeddings
          Same model as indexing (code-scout-code)
        ↓
 Output: []float64 query embedding (3584 dimensions)
@@ -375,7 +375,7 @@ Vector search (bi-encoder) finds results by comparing query and document embeddi
 **Example Configuration:**
 ```json
 {
-  "endpoint": "http://localhost:11434",
+  "endpoint": "http://localhost:11435",
   "rerank_model": "BAAI/bge-reranker-base",
   "rerank_top_k": 25
 }
@@ -397,7 +397,7 @@ Vector search (bi-encoder) finds results by comparing query and document embeddi
 
 2. **Cross-Encoder Request**: Send to TEI `/rerank` endpoint via tei-wrapper:
    ```json
-   POST http://localhost:11434/rerank
+   POST http://localhost:11435/rerank
    {
      "query": "error handling in database queries",
      "texts": ["File: ...\nfunc Search...", "File: ...\nfunc Query..."]
@@ -523,7 +523,7 @@ AST Nodes
 Chunks {code, metadata, lines}
     ↓ [Content Hash]
 Unique Chunks (deduplicated)
-    ↓ [Ollama API]
+    ↓ [Embeddings API]
 Embeddings []float64[3584]
     ↓ [Arrow Conversion]
 RecordBatch
@@ -533,7 +533,7 @@ Persisted Vectors
 ─────── SEARCH ───────
 
 Query String
-    ↓ [Ollama API]
+    ↓ [Embeddings API]
 Query Embedding []float64[3584]
     ↓ [LanceDB Vector Search]
 Raw Results (with duplicates)
@@ -568,7 +568,7 @@ Output
 Each stage has error handling:
 - Scanner: Permission errors, invalid paths
 - Parser: Malformed code, unsupported syntax
-- Embeddings: Ollama connection, API errors
+- Embeddings: endpoint connection, API errors
 - Storage: Disk space, corrupted database
 - Search: Empty database, invalid query
 

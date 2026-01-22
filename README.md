@@ -92,20 +92,6 @@ Both files are optional. If neither exists, only hidden files/directories (those
 
 ## Embedding Models
 
-Code Scout uses custom-configured Ollama models with persistent context window settings to ensure reliable code embedding without silent truncation.
-
-### Why Custom Model Files?
-
-**Problem**: Ollama's default context window (2048 tokens) is too small for code files and silently discards content beyond this limit. Runtime API parameters must be sent with every request or the server reverts to defaults.
-
-**Solution**: We use custom Modelfiles to persistently configure larger context windows that match each model's native capacity. This ensures:
-- No silent truncation of code files
-- Consistent behavior across all API calls
-- Optimal context usage for embedding generation
-- Simpler client code (no per-request parameter management)
-
-### Supported Models
-
 Code Scout uses two embedding models optimized for different purposes. Default model IDs for TEI (wrapper or any HuggingFace-backed endpoint):
 
 **nomic-ai/CodeRankEmbed** (8K context)
@@ -118,68 +104,7 @@ Code Scout uses two embedding models optimized for different purposes. Default m
 - Context window: 2,048 tokens
 - Best for: Documentation, comments, shorter text files
 
-Note: `nomic-embed-code` is a large Ollama model with higher accuracy but requires a powerful GPU and lots of RAM, and it is not currently supported by TEI. For TEI or lower-power machines, `nomic-ai/CodeRankEmbed` is the preferred code model.
-
-If you're using Ollama, the custom Modelfiles below create `code-scout-code` and `code-scout-text` with larger context windows.
-
-### Setting Up Custom Models (Ollama)
-
-The `ollama-models/` directory contains Modelfiles with pre-configured context windows.
-
-**1. Install Ollama** (if not already installed):
-```bash
-# macOS
-brew install ollama
-
-# Linux
-curl -fsSL https://ollama.com/install.sh | sh
-
-# Start the Ollama service
-brew services start ollama
-```
-
-**2. Pull the base models**:
-```bash
-# Pull nomic-embed-text
-ollama pull nomic-embed-text
-
-# Pull nomic-embed-code (large; requires a powerful GPU and lots of RAM)
-ollama pull manutic/nomic-embed-code
-```
-
-**3. Create custom models from Modelfiles**:
-```bash
-# Navigate to repo root
-cd /path/to/code_scout
-
-# Create custom nomic-embed-text with 8K context
-ollama create code-scout-text -f ollama-models/nomic-embed-text.Modelfile
-
-# Create custom nomic-embed-code with 32K context
-ollama create code-scout-code -f ollama-models/nomic-embed-code.Modelfile
-```
-
-**4. Verify the models**:
-```bash
-# List your models
-ollama list
-
-# Test the custom models
-ollama run code-scout-text
-ollama run code-scout-code
-```
-
-**5. Use in Code Scout**:
-```python
-import ollama
-
-# Use custom models with persistent context settings
-response = ollama.embeddings(
-    model='code-scout-code',  # or 'code-scout-text'
-    prompt='your code here'
-)
-# Context window is automatically set to 32K (no need for options parameter)
-```
+These models run on TEI locally or any OpenAI-compatible embedding endpoint.
 
 ### Model Selection Guidelines
 
@@ -189,8 +114,6 @@ response = ollama.embeddings(
 | `.py`, `.js`, `.java`, `.go`, `.rb`, `.php` | `nomic-ai/CodeRankEmbed` | Code-optimized embeddings |
 | Mixed code+docs | `nomic-ai/nomic-embed-text-v1.5` | Balanced for both |
 | Large files (>500 lines) | `nomic-ai/CodeRankEmbed` | 8K context handles larger files |
-
-Ollama users: replace with `code-scout-text` and `code-scout-code` if you created the custom models.
 
 ## Use Cases
 
@@ -232,13 +155,16 @@ Create a JSON file with the following structure:
 
 ```json
 {
-  "endpoint": "http://localhost:11434",
+  "endpoint": "http://localhost:11435",
   "api_key": "",
   "code_model": "nomic-ai/CodeRankEmbed",
   "text_model": "nomic-ai/nomic-embed-text-v1.5",
   "rerank_model": "",
   "rerank_top_k": 0,
-  "single_model_mode": true
+  "single_model_mode": true,
+  "text_tei_port": 8080,
+  "code_tei_port": 8082,
+  "rerank_port": 8081
 }
 ```
 
@@ -250,31 +176,23 @@ Create a JSON file with the following structure:
 - `rerank_model`: (Optional) Cross-encoder model name for reranking (e.g., `BAAI/bge-reranker-base`). tei-wrapper loads the reranker model on-demand (see [RERANKER_SETUP.md](docs/guides/RERANKER_SETUP.md))
 - `rerank_top_k`: (Optional) Number of top results to rerank (defaults to search `--limit` when `rerank_model` is set)
 - `single_model_mode`: (Optional, default: `true`) Use single TEI process with model switching. Set to `false` for multi-model mode (runs separate TEI processes for each model simultaneously, higher memory but faster)
+- `text_tei_port`: (Optional, default: `8080`) TEI port for text embeddings (multi-model mode)
+- `code_tei_port`: (Optional, default: `8082`) TEI port for code embeddings (multi-model mode)
+- `rerank_port`: (Optional, default: `8081`) TEI port for the reranker instance
 
-Defaults target the TEI wrapper (CodeRankEmbed + nomic-embed-text-v1.5). If you use Ollama, set `code_model` and `text_model` to your local model names (for example, `code-scout-code` / `code-scout-text`).
+Defaults target the TEI wrapper (CodeRankEmbed + nomic-embed-text-v1.5).
 
 ### Example Configurations
 
 **Default (TEI Wrapper Local - Single Model Mode)**:
 ```json
 {
-  "endpoint": "http://localhost:11434",
+  "endpoint": "http://localhost:11435",
   "code_model": "nomic-ai/CodeRankEmbed",
   "text_model": "nomic-ai/nomic-embed-text-v1.5",
   "rerank_model": "",
   "rerank_top_k": 0,
   "single_model_mode": true
-}
-```
-
-**Ollama Local (Custom Models)**:
-```json
-{
-  "endpoint": "http://localhost:11434",
-  "code_model": "code-scout-code",
-  "text_model": "code-scout-text",
-  "rerank_model": "",
-  "rerank_top_k": 0
 }
 ```
 
@@ -293,19 +211,18 @@ Defaults target the TEI wrapper (CodeRankEmbed + nomic-embed-text-v1.5). If you 
 **Remote TEI Wrapper (GPU Server)**:
 ```json
 {
-  "endpoint": "http://my-gpu-server:11434",
-  "code_model": "nomic-ai/nomic-embed-code",
+  "endpoint": "http://my-gpu-server:11435",
+  "code_model": "nomic-ai/CodeRankEmbed",
   "text_model": "nomic-ai/nomic-embed-text-v1.5",
   "rerank_model": "",
   "rerank_top_k": 0
 }
 ```
-Note: `nomic-ai/nomic-embed-code` requires a powerful GPU and lots of RAM and is Ollama-only today. If your remote server runs TEI, use `nomic-ai/CodeRankEmbed` instead.
 
 **With Cross-Encoder Reranking (Recommended)**:
 ```json
 {
-  "endpoint": "http://localhost:11434",
+  "endpoint": "http://localhost:11435",
   "code_model": "nomic-ai/CodeRankEmbed",
   "text_model": "nomic-ai/nomic-embed-text-v1.5",
   "rerank_model": "BAAI/bge-reranker-base",
@@ -342,7 +259,7 @@ You can override the endpoint for a single command using the `--endpoint` flag:
 
 ```bash
 # Use a different endpoint for this indexing operation
-code-scout index --endpoint http://remote-server:11434
+code-scout index --endpoint http://remote-server:11435
 
 # Use a different endpoint for searching
 code-scout search "authentication" --endpoint https://api.example.com
@@ -357,7 +274,7 @@ mkdir -p ~/.code-scout
 # Create default configuration (local TEI wrapper, no API key needed)
 cat > ~/.code-scout/config.json << 'EOF'
 {
-  "endpoint": "http://localhost:11434",
+  "endpoint": "http://localhost:11435",
   "code_model": "nomic-ai/CodeRankEmbed",
   "text_model": "nomic-ai/nomic-embed-text-v1.5",
   "rerank_model": "nomic-ai/nomic-embed-text-v1.5",
@@ -435,7 +352,7 @@ code-scout search "authentication"
 ```
 
 **Features:**
-- ✅ **3-4x faster** than Ollama
+- ✅ **Fast** embedding generation with GPU acceleration
 - ✅ **Automatic model switching** (code vs documentation)
 - ✅ **Optional cross-encoder reranking** for improved search relevance
 - ✅ **Background indexing** (no manual `code-scout index`)
@@ -447,43 +364,6 @@ code-scout search "authentication"
 - [TEI Wrapper Guide](docs/guides/TEI_WRAPPER.md) - Setup and usage
 - [Reranker Setup Guide](docs/guides/RERANKER_SETUP.md) - Cross-encoder reranking for improved relevance
 - [Background Daemon Guide](docs/guides/BACKGROUND_DAEMON.md) - Auto-indexing
-
-### Alternative: Ollama
-
-**Best for:** Simplest setup, small repos, any platform
-
-Ollama is the easiest option but requires reduced concurrency (`--workers 2 --batch-size 2`):
-
-```bash
-# Install Ollama
-brew install ollama  # or see https://ollama.com/download
-
-# Pull model
-ollama pull nomic-embed-text
-
-# Use with code-scout (reduced concurrency required)
-code-scout index --workers 2 --batch-size 2
-```
-
-**Trade-offs:**
-- ✅ Dead simple setup
-- ✅ Works on all platforms
-- ⚠️ 2-3x slower than TEI
-- ⚠️ Limited concurrency (max 2 workers)
-
-**Documentation:**
-- [Ollama Setup Guide](docs/guides/OLLAMA_SETUP.md) - Installation and configuration
-
-### Comparison
-
-| Feature | TEI + Wrapper | Ollama |
-|---------|--------------|--------|
-| **Speed** | Fast (3-4x faster) | Slow |
-| **Concurrency** | High (6-10 workers) | Low (2 workers) |
-| **Memory** | 4-8GB | 4-8GB |
-| **Setup** | Moderate | Very Easy |
-| **GPU** | ✅ Metal/CUDA | ✅ Metal/CUDA |
-| **Auto Model Switching** | ✅ Yes | ✅ Yes |
 
 ## Background Indexing Daemon
 

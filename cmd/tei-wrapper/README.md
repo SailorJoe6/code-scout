@@ -6,13 +6,13 @@ A lightweight HTTP wrapper around [Text Embeddings Inference (TEI)](https://gith
 
 **Problems:**
 - Running two TEI instances (code + text models) uses 8-16GB RAM
-- Ollama doesn't handle concurrent requests well for embedding models
-- Model switching in Ollama kills performance
+- Managing multiple TEI processes for model switching is operationally clunky
+- Too much memory pressure on developer machines
 
 **Solution:**
 - Single TEI process with smart model hot-swapping
 - OpenAI-compatible API for easy integration
-- Better concurrency than Ollama
+- Better concurrency than dual TEI instances
 - Lower memory usage than dual TEI instances
 
 ## Installation
@@ -38,7 +38,7 @@ go build -o tei-wrapper .
 
 # Wrapper will:
 # - Start TEI on port 8080 (internal)
-# - Listen on port 11435 (default; avoids Ollama)
+# - Listen on port 11435 (default)
 # - Load nomic-ai/CodeRankEmbed by default
 # - Automatically switch models when requested via API
 ```
@@ -53,13 +53,13 @@ go build -o tei-wrapper .
 ./tei-wrapper --port 8081 --model nomic-ai/CodeRankEmbed
 ```
 
-**Note:** `nomic-ai/nomic-embed-code` is Ollama-only and not currently supported by TEI. Use `nomic-ai/CodeRankEmbed` on TEI.
+**Note:** `nomic-ai/nomic-embed-code` is not supported by TEI. Use `nomic-ai/CodeRankEmbed` instead.
 
 ### Command Line Options
 
 ```
 -port int
-    Port to listen on (default: 11435; use 11434 if Ollama is not running)
+    Port to listen on (default: 11435)
 -tei-port int
     TEI internal port (default: 8080)
 -tei-binary string
@@ -169,7 +169,7 @@ See [TEI_SETUP.md](../../docs/guides/TEI_SETUP.md#model-selection) for supported
 
 ## Using with code-scout
 
-Configure code-scout to use the wrapper instead of Ollama:
+Configure code-scout to use the wrapper:
 
 ```bash
 # Set environment variable
@@ -179,7 +179,7 @@ export EMBEDDINGS_BASE_URL=http://localhost:11435
 code-scout index --embeddings-url http://localhost:11435
 ```
 
-The wrapper is API-compatible with Ollama, so code-scout will work without any code changes!
+The wrapper is OpenAI-compatible, so code-scout works without any code changes!
 
 ## Development Status
 
@@ -218,7 +218,7 @@ Check that:
 
 ### "Out of memory" errors
 
-Large models like nomic-embed-code 7B require a powerful GPU and lots of RAM in Ollama, and are not supported by TEI. Try:
+Large models like nomic-embed-code 7B require a powerful GPU and lots of RAM, and are not supported by TEI. Try:
 1. Use the smaller CodeRankEmbed model (default for TEI)
 2. Lower the `--max-batch-tokens` value (e.g., 4096 or 2048)
 3. Reduce batch size in code-scout (`--batch-size 2`)

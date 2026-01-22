@@ -55,6 +55,7 @@ type TEIResponse [][]float64
 // Server manages the TEI wrapper
 type Server struct {
 	config       *config.Config // Config from .code-scout.json
+	multiModel   bool
 	teiPort      int
 	teiBinary    string
 	initialModel string
@@ -83,6 +84,16 @@ type Server struct {
 	rerankBaseURL        string        // http://localhost:{rerankPort}
 	rerankHealthy        bool          // Current health status
 	rerankSwitching      bool          // True during reranker model switch
+
+	// Multi-model TEI management (code + text)
+	codeModel       string
+	textModel       string
+	codeTEIPort     int
+	textTEIPort     int
+	codeTEICmd      *exec.Cmd
+	textTEICmd      *exec.Cmd
+	codeTEIBaseURL  string
+	textTEIBaseURL  string
 }
 
 func main() {
@@ -92,19 +103,38 @@ func main() {
 		log.Fatalf("Failed to load config: %v", err)
 	}
 
+	singleModelMode := true
+	if cfg.SingleModelMode != nil {
+		singleModelMode = *cfg.SingleModelMode
+	}
+
+	textTEIPortDefault := cfg.TextTEIPort
+	if textTEIPortDefault == 0 {
+		textTEIPortDefault = 8080
+	}
+	codeTEIPortDefault := cfg.CodeTEIPort
+	if codeTEIPortDefault == 0 {
+		codeTEIPortDefault = 8082
+	}
+	rerankPortDefault := cfg.RerankPort
+	if rerankPortDefault == 0 {
+		rerankPortDefault = 8081
+	}
+
 	// Command line flags (with config defaults)
-	port := flag.Int("port", 11435, "Port to listen on (default avoids Ollama 11434)")
-	teiPort := flag.Int("tei-port", 8080, "TEI internal port")
+	port := flag.Int("port", 11435, "Port to listen on")
+	teiPort := flag.Int("tei-port", textTEIPortDefault, "TEI internal port (text model in multi-model mode)")
+	codeTEIPort := flag.Int("code-tei-port", codeTEIPortDefault, "TEI port for code model (multi-model mode)")
 	teiBinary := flag.String("tei-binary", "text-embeddings-router", "Path to TEI binary")
 
 	// Model flags with config file as defaults (CLI overrides config)
-	model := flag.String("model", cfg.TextModel, "Initial model (default from config: text model)")
+	model := flag.String("model", cfg.TextModel, "Initial model (text model in multi-model mode)")
 	idlePreload := flag.Bool("idle-preload", false, "Enable idle-based preloading of text model")
 	idleTimeout := flag.Duration("idle-timeout", 30*time.Second, "Idle time before preloading text model")
 	maxBatchTokens := flag.Int("max-batch-tokens", 8192, "Maximum batch tokens for TEI (controls memory usage, lower = less RAM)")
 
 	// Reranker flags (optional - enables dedicated reranker TEI instance)
-	rerankPort := flag.Int("rerank-port", 8081, "Port for reranker TEI instance")
+	rerankPort := flag.Int("rerank-port", rerankPortDefault, "Port for reranker TEI instance")
 	rerankModel := flag.String("rerank-model", "", "Model ID for reranker (deprecated; empty = load on-demand from config)")
 	flag.Parse()
 
@@ -121,9 +151,13 @@ func main() {
 		initialModel = "nomic-ai/nomic-embed-text-v1.5" // Hardcoded fallback
 	}
 
+	textModel := initialModel
+	codeModel := cfg.CodeModel
+
 	// Create server
 	server := &Server{
 		config:       cfg,
+		multiModel:   !singleModelMode,
 		teiPort:      *teiPort,
 		teiBinary:    *teiBinary,
 		initialModel: initialModel,
@@ -140,21 +174,40 @@ func main() {
 		rerankPort:    *rerankPort,
 		rerankModel:   *rerankModel,
 		rerankBaseURL: fmt.Sprintf("http://localhost:%d", *rerankPort),
+		// Multi-model config
+		codeModel:      codeModel,
+		textModel:      textModel,
+		codeTEIPort:    *codeTEIPort,
+		textTEIPort:    *teiPort,
+		codeTEIBaseURL: fmt.Sprintf("http://localhost:%d", *codeTEIPort),
+		textTEIBaseURL: fmt.Sprintf("http://localhost:%d", *teiPort),
 	}
 
-	// Start TEI process
-	log.Printf("Starting TEI with model: %s", server.initialModel)
-	if err := server.startTEIWithModel(context.Background(), server.initialModel); err != nil {
-		log.Fatalf("Failed to start TEI: %v", err)
-	}
-	defer server.stopTEI()
+	if !server.multiModel {
+		log.Printf("Starting TEI with model: %s", server.initialModel)
+		if err := server.startTEIWithModel(context.Background(), server.initialModel); err != nil {
+			log.Fatalf("Failed to start TEI: %v", err)
+		}
+		defer server.stopTEI()
 
-	// Wait for TEI to be ready
-	log.Printf("Waiting for TEI to be ready...")
-	if err := server.waitForTEI(90 * time.Second); err != nil {
-		log.Fatalf("TEI failed to start: %v", err)
+		log.Printf("Waiting for TEI to be ready...")
+		if err := server.waitForTEI(90 * time.Second); err != nil {
+			log.Fatalf("TEI failed to start: %v", err)
+		}
+		log.Printf("TEI is ready!")
+	} else {
+		log.Printf("Starting multi-model TEI (code: %s, text: %s)", server.codeModel, server.textModel)
+		if err := server.startMultiTEI(context.Background()); err != nil {
+			log.Fatalf("Failed to start multi-model TEI: %v", err)
+		}
+		defer server.stopMultiTEI()
+
+		log.Printf("Waiting for TEI processes to be ready...")
+		if err := server.waitForMultiTEI(90 * time.Second); err != nil {
+			log.Fatalf("TEI processes failed to start: %v", err)
+		}
+		log.Printf("TEI processes are ready!")
 	}
-	log.Printf("TEI is ready!")
 
 	// Start reranker TEI only when explicitly set via CLI flag
 	if rerankModelSet && server.rerankModel != "" {
@@ -204,64 +257,83 @@ func main() {
 	}
 }
 
-// startTEIWithModel starts the TEI process with the specified model
-func (s *Server) startTEIWithModel(ctx context.Context, model string) error {
-	// TEI command: text-embeddings-router --model-id <model> --port <port>
-	s.teiCmd = exec.CommandContext(ctx, s.teiBinary,
+// startTEIProcess starts a TEI process for a model/port pair.
+func (s *Server) startTEIProcess(ctx context.Context, model string, port int) (*exec.Cmd, error) {
+	cmd := exec.CommandContext(ctx, s.teiBinary,
 		"--model-id", model,
-		"--port", fmt.Sprintf("%d", s.teiPort),
+		"--port", fmt.Sprintf("%d", port),
 		"--max-batch-tokens", fmt.Sprintf("%d", s.maxBatchTokens),
 	)
 
 	// Capture output for debugging
-	s.teiCmd.Stdout = os.Stdout
-	s.teiCmd.Stderr = os.Stderr
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
 
-	if err := s.teiCmd.Start(); err != nil {
-		return fmt.Errorf("failed to start TEI: %w", err)
+	if err := cmd.Start(); err != nil {
+		return nil, fmt.Errorf("failed to start TEI: %w", err)
 	}
 
-	log.Printf("TEI process started with model %s (PID: %d)", model, s.teiCmd.Process.Pid)
+	log.Printf("TEI process started with model %s (PID: %d, port: %d)", model, cmd.Process.Pid, port)
+	return cmd, nil
+}
+
+// startTEIWithModel starts the TEI process with the specified model.
+func (s *Server) startTEIWithModel(ctx context.Context, model string) error {
+	cmd, err := s.startTEIProcess(ctx, model, s.teiPort)
+	if err != nil {
+		return err
+	}
+	s.teiCmd = cmd
 	s.currentModel = model
 	return nil
 }
 
-// stopTEI gracefully stops the TEI process
-func (s *Server) stopTEI() {
-	if s.teiCmd == nil || s.teiCmd.Process == nil {
+// stopTEIProcess gracefully stops a TEI process.
+func (s *Server) stopTEIProcess(cmd *exec.Cmd, label string) {
+	if cmd == nil || cmd.Process == nil {
 		return
 	}
 
-	log.Printf("Stopping TEI process (PID: %d)", s.teiCmd.Process.Pid)
+	log.Printf("Stopping %s process (PID: %d)", label, cmd.Process.Pid)
 
 	// Send SIGTERM for graceful shutdown
-	if err := s.teiCmd.Process.Signal(syscall.SIGTERM); err != nil {
-		log.Printf("Failed to send SIGTERM: %v", err)
-		s.teiCmd.Process.Kill()
+	if err := cmd.Process.Signal(syscall.SIGTERM); err != nil {
+		log.Printf("Failed to send SIGTERM to %s: %v", label, err)
+		cmd.Process.Kill()
 		return
 	}
 
 	// Wait for process to exit (with timeout)
 	done := make(chan error, 1)
 	go func() {
-		done <- s.teiCmd.Wait()
+		done <- cmd.Wait()
 	}()
 
 	select {
 	case <-done:
-		log.Printf("TEI stopped gracefully")
+		log.Printf("%s stopped gracefully", label)
 	case <-time.After(5 * time.Second):
-		log.Printf("TEI didn't stop in time, killing...")
-		s.teiCmd.Process.Kill()
+		log.Printf("%s didn't stop in time, killing...", label)
+		cmd.Process.Kill()
 	}
 }
 
-// waitForTEI waits for TEI to be ready by polling the health endpoint
-func (s *Server) waitForTEI(timeout time.Duration) error {
+// stopTEI gracefully stops the TEI process.
+func (s *Server) stopTEI() {
+	s.stopTEIProcess(s.teiCmd, "TEI")
+}
+
+func (s *Server) stopMultiTEI() {
+	s.stopTEIProcess(s.codeTEICmd, "code TEI")
+	s.stopTEIProcess(s.textTEICmd, "text TEI")
+}
+
+// waitForTEIAt waits for a TEI instance to be ready by polling the health endpoint.
+func (s *Server) waitForTEIAt(baseURL string, timeout time.Duration) error {
 	deadline := time.Now().Add(timeout)
 
 	for time.Now().Before(deadline) {
-		resp, err := s.client.Get(s.teiBaseURL + "/health")
+		resp, err := s.client.Get(baseURL + "/health")
 		if err == nil {
 			resp.Body.Close()
 			if resp.StatusCode == http.StatusOK {
@@ -274,8 +346,48 @@ func (s *Server) waitForTEI(timeout time.Duration) error {
 	return fmt.Errorf("TEI did not become ready within %v", timeout)
 }
 
+// waitForTEI waits for TEI to be ready by polling the health endpoint.
+func (s *Server) waitForTEI(timeout time.Duration) error {
+	return s.waitForTEIAt(s.teiBaseURL, timeout)
+}
+
+func (s *Server) startMultiTEI(ctx context.Context) error {
+	if s.codeModel == "" || s.textModel == "" {
+		return fmt.Errorf("code_model and text_model must be set for multi-model mode")
+	}
+
+	codeCmd, err := s.startTEIProcess(ctx, s.codeModel, s.codeTEIPort)
+	if err != nil {
+		return fmt.Errorf("code TEI: %w", err)
+	}
+	s.codeTEICmd = codeCmd
+
+	textCmd, err := s.startTEIProcess(ctx, s.textModel, s.textTEIPort)
+	if err != nil {
+		s.stopTEIProcess(s.codeTEICmd, "code TEI")
+		return fmt.Errorf("text TEI: %w", err)
+	}
+	s.textTEICmd = textCmd
+
+	return nil
+}
+
+func (s *Server) waitForMultiTEI(timeout time.Duration) error {
+	if err := s.waitForTEIAt(s.textTEIBaseURL, timeout); err != nil {
+		return fmt.Errorf("text TEI: %w", err)
+	}
+	if err := s.waitForTEIAt(s.codeTEIBaseURL, timeout); err != nil {
+		return fmt.Errorf("code TEI: %w", err)
+	}
+	return nil
+}
+
 // switchModel switches to a new model by stopping and restarting TEI
 func (s *Server) switchModel(newModel string) error {
+	if s.multiModel {
+		return fmt.Errorf("model switching is disabled in multi-model mode")
+	}
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -362,40 +474,60 @@ func (s *Server) handleEmbeddings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Check if we need to switch models
-	s.mu.RLock()
-	needsSwitch := req.Model != "" && req.Model != s.currentModel
-	isSwitching := s.switching
-	s.mu.RUnlock()
+	var embeddings [][]float64
+	selectedModel := req.Model
 
-	if isSwitching {
-		// Return 503 with Retry-After header during switch
-		w.Header().Set("Retry-After", "5")
-		http.Error(w, "Model switch in progress, please retry", http.StatusServiceUnavailable)
-		return
-	}
+	if !s.multiModel {
+		// Check if we need to switch models
+		s.mu.RLock()
+		needsSwitch := req.Model != "" && req.Model != s.currentModel
+		isSwitching := s.switching
+		s.mu.RUnlock()
 
-	if needsSwitch {
-		// Switch to the requested model
-		if err := s.switchModel(req.Model); err != nil {
-			log.Printf("Model switch failed: %v", err)
-			http.Error(w, fmt.Sprintf("Model switch failed: %v", err), http.StatusInternalServerError)
+		if isSwitching {
+			// Return 503 with Retry-After header during switch
+			w.Header().Set("Retry-After", "5")
+			http.Error(w, "Model switch in progress, please retry", http.StatusServiceUnavailable)
 			return
 		}
-	}
 
-	// Forward to TEI
-	embeddings, err := s.getEmbeddings(req.Input)
-	if err != nil {
-		log.Printf("TEI request failed: %v", err)
-		http.Error(w, fmt.Sprintf("Embedding failed: %v", err), http.StatusInternalServerError)
-		return
+		if needsSwitch {
+			// Switch to the requested model
+			if err := s.switchModel(req.Model); err != nil {
+				log.Printf("Model switch failed: %v", err)
+				http.Error(w, fmt.Sprintf("Model switch failed: %v", err), http.StatusInternalServerError)
+				return
+			}
+		}
+
+		// Forward to TEI
+		var err error
+		embeddings, err = s.getEmbeddings(req.Input)
+		if err != nil {
+			log.Printf("TEI request failed: %v", err)
+			http.Error(w, fmt.Sprintf("Embedding failed: %v", err), http.StatusInternalServerError)
+			return
+		}
+	} else {
+		targetURL, resolvedModel, err := s.resolveEmbeddingTarget(req.Model)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		selectedModel = resolvedModel
+
+		embeddings, err = s.getEmbeddingsFrom(targetURL, req.Input)
+		if err != nil {
+			log.Printf("TEI request failed: %v", err)
+			http.Error(w, fmt.Sprintf("Embedding failed: %v", err), http.StatusInternalServerError)
+			return
+		}
 	}
 
 	// Build OpenAI-compatible response
 	resp := EmbeddingResponse{
 		Object: "list",
-		Model:  req.Model,
+		Model:  selectedModel,
 		Data:   make([]EmbeddingData, len(embeddings)),
 		Usage: EmbeddingUsage{
 			PromptTokens: len(req.Input),
@@ -419,8 +551,25 @@ func (s *Server) handleEmbeddings(w http.ResponseWriter, r *http.Request) {
 	s.resetIdleTimer()
 }
 
-// getEmbeddings sends a request to TEI and returns the embeddings
+func (s *Server) resolveEmbeddingTarget(requestedModel string) (string, string, error) {
+	if requestedModel == "" {
+		return s.textTEIBaseURL, s.textModel, nil
+	}
+	if requestedModel == s.textModel {
+		return s.textTEIBaseURL, s.textModel, nil
+	}
+	if requestedModel == s.codeModel {
+		return s.codeTEIBaseURL, s.codeModel, nil
+	}
+	return "", "", fmt.Errorf("unknown embedding model: %s", requestedModel)
+}
+
+// getEmbeddings sends a request to TEI and returns the embeddings.
 func (s *Server) getEmbeddings(inputs []string) ([][]float64, error) {
+	return s.getEmbeddingsFrom(s.teiBaseURL, inputs)
+}
+
+func (s *Server) getEmbeddingsFrom(baseURL string, inputs []string) ([][]float64, error) {
 	// Build TEI request
 	teiReq := TEIRequest{
 		Inputs: inputs,
@@ -433,7 +582,7 @@ func (s *Server) getEmbeddings(inputs []string) ([][]float64, error) {
 
 	// Send request to TEI
 	resp, err := s.client.Post(
-		s.teiBaseURL+"/embed",
+		baseURL+"/embed",
 		"application/json",
 		bytes.NewReader(reqBody),
 	)
@@ -458,6 +607,64 @@ func (s *Server) getEmbeddings(inputs []string) ([][]float64, error) {
 
 // handleHealth returns the health status
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
+	if s.multiModel {
+		codeHealthy := s.checkTEIHealth(s.codeTEIBaseURL)
+		textHealthy := s.checkTEIHealth(s.textTEIBaseURL)
+
+		if !codeHealthy || !textHealthy {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusServiceUnavailable)
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"status": "unhealthy",
+				"embedding_models": map[string]interface{}{
+					"code": map[string]interface{}{
+						"model":   s.codeModel,
+						"healthy": codeHealthy,
+						"port":    s.codeTEIPort,
+					},
+					"text": map[string]interface{}{
+						"model":   s.textModel,
+						"healthy": textHealthy,
+						"port":    s.textTEIPort,
+					},
+				},
+			})
+			return
+		}
+
+		response := map[string]interface{}{
+			"status": "ok",
+			"embedding_models": map[string]interface{}{
+				"code": map[string]interface{}{
+					"model":   s.codeModel,
+					"healthy": true,
+					"port":    s.codeTEIPort,
+				},
+				"text": map[string]interface{}{
+					"model":   s.textModel,
+					"healthy": true,
+					"port":    s.textTEIPort,
+				},
+			},
+		}
+
+		if s.rerankerConfigured() {
+			rerankHealthy := s.checkRerankHealth()
+			response["reranker"] = map[string]interface{}{
+				"enabled":       true,
+				"healthy":       rerankHealthy,
+				"model":         s.currentRerankModel,
+				"port":          s.rerankPort,
+				"switching":     s.rerankSwitching,
+				"startup_model": s.rerankModel,
+			}
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(response)
+		return
+	}
+
 	s.mu.RLock()
 	currentModel := s.currentModel
 	isSwitching := s.switching
@@ -476,12 +683,7 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Check if embeddings TEI is healthy
-	embeddingsHealthy := false
-	resp, err := s.client.Get(s.teiBaseURL + "/health")
-	if err == nil {
-		resp.Body.Close()
-		embeddingsHealthy = resp.StatusCode == http.StatusOK
-	}
+	embeddingsHealthy := s.checkTEIHealth(s.teiBaseURL)
 
 	if !embeddingsHealthy {
 		w.Header().Set("Content-Type", "application/json")
@@ -519,7 +721,7 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 
 // resetIdleTimer resets the idle timer after each request
 func (s *Server) resetIdleTimer() {
-	if !s.idlePreload {
+	if !s.idlePreload || s.multiModel {
 		return
 	}
 
@@ -555,6 +757,15 @@ func (s *Server) onIdleTimeout() {
 			log.Printf("Idle preload complete: %s ready for next run", preferredModel)
 		}
 	}
+}
+
+func (s *Server) checkTEIHealth(baseURL string) bool {
+	resp, err := s.client.Get(baseURL + "/health")
+	if err != nil {
+		return false
+	}
+	defer resp.Body.Close()
+	return resp.StatusCode == http.StatusOK
 }
 
 // ============================================================================

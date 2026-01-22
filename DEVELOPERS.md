@@ -306,7 +306,7 @@ go build -o tei-wrapper .
 
 **Run locally:**
 ```bash
-# Start with default settings (port 11434, TEI on 8080)
+# Start with default settings (port 11435, TEI on 8080)
 ./tei-wrapper
 
 # With custom settings

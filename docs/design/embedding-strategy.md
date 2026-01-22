@@ -6,97 +6,75 @@ Code Scout uses semantic embeddings to represent code chunks as high-dimensional
 
 ## Embedding Model
 
-**Model**: `code-scout-code` (based on nomic-embed-code)
-**Provider**: Ollama (local API)
-**Dimensions**: 3584
-**Context Window**: 32,768 tokens (~2000-2500 lines of code)
+Code Scout uses a two-model embedding strategy tuned for code and documentation.
 
-### Why nomic-embed-code?
+**Code model**: `nomic-ai/CodeRankEmbed`  
+**Text model**: `nomic-ai/nomic-embed-text-v1.5`  
+**Provider**: TEI via the OpenAI-compatible TEI wrapper  
+**Default endpoint**: `http://localhost:11435`
+
+### Why CodeRankEmbed + nomic-embed-text?
 
 - **Code-specialized**: Trained on code in multiple languages (Python, Java, Ruby, PHP, JavaScript, Go)
-- **Large context**: 32K tokens handles most code files entirely
-- **Local**: Runs via Ollama, no cloud dependencies
+- **Lightweight text model**: Fast and accurate for docs
+- **Local**: Runs via TEI, no cloud dependencies
 - **Open source**: Transparent model architecture
-
-### Custom Modelfile
-
-Code Scout uses a custom Ollama Modelfile to ensure consistent behavior:
-
-```dockerfile
-FROM nomic-embed-text
-PARAMETER num_ctx 32768
-PARAMETER num_batch 512
-```
-
-**Why custom?**
-- Ollama defaults to 2048 token context (too small for code)
-- Without persistent config, context must be set per-request
-- Custom Modelfile makes large context the default
-
-**Setup**:
-```bash
-ollama create code-scout-code -f ollama-models/code-scout-code.Modelfile
-```
-
-See README.md for full setup instructions.
 
 ## API Integration
 
-### Ollama Embeddings API
+### OpenAI-Compatible Embeddings API
 
-Code Scout calls Ollama's `/api/embeddings` endpoint:
+Code Scout calls an OpenAI-compatible `/v1/embeddings` endpoint (TEI wrapper by default):
 
 **Request**:
 ```json
-POST http://localhost:11434/api/embeddings
+POST http://localhost:11435/v1/embeddings
 Content-Type: application/json
 
 {
-  "model": "code-scout-code",
-  "prompt": "func Add(a, b int) int {\n    return a + b\n}"
+  "model": "nomic-ai/CodeRankEmbed",
+  "input": ["func Add(a, b int) int {\n    return a + b\n}"]
 }
 ```
 
 **Response**:
 ```json
 {
-  "embedding": [
-    0.12304688,
-    -0.45605469,
-    0.78906250,
-    ...
-    // 3584 total dimensions
+  "data": [
+    {
+      "embedding": [0.12304688, -0.45605469, 0.78906250, ...]
+    }
   ]
 }
 ```
 
-**Implementation**: internal/embeddings/ollama.go:46-78
+**Implementation**: internal/embeddings/client.go:151-206
 
 ### Client Implementation
 
 ```go
-type OllamaClient struct {
-    endpoint string  // http://localhost:11434
-    model    string  // code-scout-code
+type OpenAIClient struct {
+    endpoint string  // http://localhost:11435
+    model    string  // nomic-ai/CodeRankEmbed
     client   *http.Client
 }
 
-func (c *OllamaClient) Embed(text string) ([]float64, error) {
+func (c *OpenAIClient) Embed(text string) ([]float64, error) {
     // 1. Prepare request
-    reqBody := ollamaEmbedRequest{
-        Model:  c.model,
-        Prompt: text,
+    reqBody := openAIEmbedRequest{
+        Model: c.model,
+        Input: []string{text},
     }
 
-    // 2. HTTP POST to Ollama
-    url := c.endpoint + "/api/embeddings"
+    // 2. HTTP POST to embeddings endpoint
+    url := c.endpoint + "/v1/embeddings"
     resp, err := c.client.Post(url, "application/json", data)
 
     // 3. Parse response
-    var embedResp ollamaEmbedResponse
+    var embedResp openAIEmbedResponse
     json.NewDecoder(resp.Body).Decode(&embedResp)
 
-    return embedResp.Embedding, nil
+    return embedResp.Data[0].Embedding, nil
 }
 ```
 
@@ -132,7 +110,7 @@ for dupIndex, firstIndex := range duplicates {
 ```
 
 **Benefits**:
-- Reduces Ollama API calls by ~11% (128/1111 in this repo)
+- Reduces embedding API calls by ~11% (128/1111 in this repo)
 - Faster indexing
 - Identical code gets identical embedding (consistent)
 
@@ -211,7 +189,7 @@ Reduction: 60%
 
 ### Worker Pool Pattern
 
-Embedding generation is I/O-bound (network calls to Ollama). Code Scout uses a worker pool to generate embeddings concurrently:
+Embedding generation is I/O-bound (network calls to the embedding endpoint). Code Scout uses a worker pool to generate embeddings concurrently:
 
 ```go
 // Configuration
@@ -250,17 +228,17 @@ for i := 0; i < len(uniqueChunks); i++ {
 
 **Performance**:
 - 10 concurrent workers
-- ~100 chunks/minute (depends on Ollama server)
+- ~100 chunks/minute (depends on embedding server)
 - Progress reported every 50 embeddings
 
 **Implementation**: cmd/code-scout/index.go:169-224
 
 **Tuning**:
 ```bash
-# Increase workers for faster embedding (if Ollama can handle it)
+# Increase workers for faster embedding (if the embedding server can handle it)
 code-scout index --workers 20
 
-# Decrease workers if Ollama is overloaded
+# Decrease workers if the embedding server is overloaded
 code-scout index --workers 5
 ```
 
@@ -372,36 +350,24 @@ results, err := store.Search(queryEmbedding, limit=10)
 
 ## Optimization Techniques
 
-### 1. Batch vs. Concurrent
+### 1. Batch + Concurrent
 
-Code Scout chooses concurrent single requests over batching:
+Code Scout batches multiple chunks per request inside a worker pool:
 
-**Why not batching?**
 ```go
-// Hypothetical batch API
 embeddings := Embed([]string{"chunk1", "chunk2", ...})
 ```
 
-Problems:
-- Ollama API doesn't support batch embeddings
-- Single HTTP request timeout risk
-- No progress feedback
-- Harder error recovery
+**Why batching?**
+- Reduces HTTP overhead per embedding
+- TEI supports multiple inputs per request
+- Improves throughput on GPU-backed servers
 
-**Why concurrent singles?**
-```go
-// Worker pool with individual requests
-for chunk := range chunks {
-    embedding := Embed(chunk)  // Individual request
-    results <- embedding
-}
-```
-
-Benefits:
-- Progress reporting (per-chunk feedback)
-- Resilient to single chunk failures
-- Tunable concurrency (--workers flag)
-- Works with Ollama's API
+**Why a worker pool?**
+- Parallelism across batches
+- Progress feedback per chunk
+- Resilient to per-batch failures
+- Tunable concurrency (`--workers`) and batch size (`--batch-size`)
 
 ### 2. Incremental Updates
 
@@ -430,14 +396,14 @@ As described above, hash-based deduplication saves ~11% of API calls.
 
 ## Error Handling
 
-### Ollama Connection Errors
+### Embedding Endpoint Connection Errors
 
 ```go
 embedding, err := client.Embed(text)
 if err != nil {
-    // Check if Ollama is running
+    // Check if the TEI wrapper is running
     if strings.Contains(err.Error(), "connection refused") {
-        return fmt.Errorf("Ollama not running. Start with: ollama serve")
+        return fmt.Errorf("Embeddings endpoint not running. Start the TEI wrapper")
     }
     return err
 }
@@ -447,7 +413,7 @@ if err != nil {
 
 ```go
 if strings.Contains(err.Error(), "model not found") {
-    return fmt.Errorf("Model 'code-scout-code' not found. Create with: ollama create code-scout-code -f ...")
+    return fmt.Errorf("Model 'nomic-ai/CodeRankEmbed' not found. Check .code-scout.json")
 }
 ```
 
@@ -510,7 +476,7 @@ Code Scout is designed for easy model swapping:
    - Specialized for code
 
 To change model:
-1. Update `DefaultCodeModel` in internal/embeddings/ollama.go
+1. Update `DefaultCodeModel` in internal/embeddings/client.go
 2. Update embedding dimension in internal/storage/lancedb.go
 3. Re-index from scratch (embeddings incompatible across models)
 
@@ -521,7 +487,7 @@ See [extension-points.md](extension-points.md) for detailed guide.
 **Indexing** (this repo, 1111 chunks):
 - Content deduplication: 983 unique chunks (11.5% reduction)
 - Workers: 10 concurrent
-- Time: ~2 minutes (depends on Ollama performance)
+- Time: ~2 minutes (depends on embedding endpoint performance)
 - Rate: ~500 chunks/minute
 
 **Search**:
@@ -563,7 +529,7 @@ Reranking addresses this by:
 **Config File** (`.code-scout.json` or `~/.code-scout/config.json`):
 ```json
 {
-  "endpoint": "http://localhost:11434",
+  "endpoint": "http://localhost:11435",
   "code_model": "nomic-ai/CodeRankEmbed",
   "text_model": "nomic-ai/nomic-embed-text-v1.5",
   "rerank_model": "BAAI/bge-reranker-base",
@@ -578,7 +544,7 @@ Reranking addresses this by:
 
 **Deployment Architecture**:
 - **tei-wrapper** manages both embedding and reranker TEI instances
-- **Single endpoint**: Code Scout communicates only with tei-wrapper (default: `http://localhost:11434`)
+- **Single endpoint**: Code Scout communicates only with tei-wrapper (default: `http://localhost:11435`)
 - **Dual TEI instances**: tei-wrapper spawns embeddings TEI immediately and starts reranker TEI on-demand
 - **Auto-routing**: tei-wrapper routes `/v1/embeddings` to embeddings TEI and `/rerank` to reranker TEI
 
@@ -617,13 +583,13 @@ The tei-wrapper handles all model lifecycle management (downloading, starting, s
 cd cmd/tei-wrapper
 go build -o tei-wrapper .
 ./tei-wrapper \
-  --port 11434 \
+  --port 11435 \
   --model nomic-ai/nomic-embed-text-v1.5
 
 # tei-wrapper automatically:
 # 1. Spawns TEI for embeddings on port 8080 (with hot-swapping)
 # 2. Spawns TEI for reranker on port 8081 (on first /rerank request)
-# 3. Exposes unified API on port 11434
+# 3. Exposes unified API on port 11435
 ```
 
 See [RERANKER_SETUP.md](../guides/RERANKER_SETUP.md) for complete setup instructions.
@@ -871,7 +837,7 @@ func rerankResults(results []SearchResult, query string, topK int) ([]SearchResu
 
 1. **Use semantic chunking**: Better chunks → better embeddings
 2. **Enable deduplication**: Saves API calls and search noise
-3. **Tune workers**: Match to Ollama server capacity
+3. **Tune workers**: Match to embedding server capacity
 4. **Incremental updates**: Only re-index changed files
 5. **Monitor progress**: Watch embedding generation output
 6. **Large context**: Use 32K model for full code files
