@@ -29,6 +29,15 @@ func TestDefault(t *testing.T) {
 	} else if *cfg.SingleModelMode != false {
 		t.Errorf("expected default single_model_mode to be false, got %v", *cfg.SingleModelMode)
 	}
+	if cfg.TextTEIPort != 8080 {
+		t.Errorf("expected default text_tei_port to be 8080, got %d", cfg.TextTEIPort)
+	}
+	if cfg.CodeTEIPort != 8082 {
+		t.Errorf("expected default code_tei_port to be 8082, got %d", cfg.CodeTEIPort)
+	}
+	if cfg.RerankPort != 8081 {
+		t.Errorf("expected default rerank_port to be 8081, got %d", cfg.RerankPort)
+	}
 }
 
 func TestLoadFromFile(t *testing.T) {
@@ -42,7 +51,10 @@ func TestLoadFromFile(t *testing.T) {
   "code_model": "custom-code",
   "text_model": "custom-text",
   "rerank_model": "custom-rerank",
-  "rerank_top_k": 25
+  "rerank_top_k": 25,
+  "text_tei_port": 9100,
+  "code_tei_port": 9200,
+  "rerank_port": 9300
 }`
 	if err := os.WriteFile(configPath, []byte(testConfig), 0644); err != nil {
 		t.Fatalf("failed to write test config: %v", err)
@@ -69,6 +81,15 @@ func TestLoadFromFile(t *testing.T) {
 	if cfg.RerankTopK != 25 {
 		t.Errorf("expected rerank top k 25, got %d", cfg.RerankTopK)
 	}
+	if cfg.TextTEIPort != 9100 {
+		t.Errorf("expected text_tei_port 9100, got %d", cfg.TextTEIPort)
+	}
+	if cfg.CodeTEIPort != 9200 {
+		t.Errorf("expected code_tei_port 9200, got %d", cfg.CodeTEIPort)
+	}
+	if cfg.RerankPort != 9300 {
+		t.Errorf("expected rerank_port 9300, got %d", cfg.RerankPort)
+	}
 }
 
 func TestLoadFromFile_NotExists(t *testing.T) {
@@ -87,6 +108,7 @@ func TestMergeConfig(t *testing.T) {
 		Endpoint:    "http://custom:8080",
 		RerankModel: "custom-rerank",
 		RerankTopK:  20,
+		CodeTEIPort: 9201,
 		// CodeModel and TextModel left empty
 	}
 
@@ -108,6 +130,9 @@ func TestMergeConfig(t *testing.T) {
 	if dst.RerankTopK != 20 {
 		t.Errorf("expected rerank top k 20, got %d", dst.RerankTopK)
 	}
+	if dst.CodeTEIPort != 9201 {
+		t.Errorf("expected code_tei_port 9201, got %d", dst.CodeTEIPort)
+	}
 }
 
 func TestSave(t *testing.T) {
@@ -120,6 +145,9 @@ func TestSave(t *testing.T) {
 		TextModel:   "test-text",
 		RerankModel: "test-rerank",
 		RerankTopK:  30,
+		TextTEIPort: 9101,
+		CodeTEIPort: 9201,
+		RerankPort:  9301,
 	}
 
 	if err := cfg.Save(configPath); err != nil {
@@ -151,6 +179,15 @@ func TestSave(t *testing.T) {
 	}
 	if loaded.RerankTopK != cfg.RerankTopK {
 		t.Errorf("expected rerank top k %d, got %d", cfg.RerankTopK, loaded.RerankTopK)
+	}
+	if loaded.TextTEIPort != cfg.TextTEIPort {
+		t.Errorf("expected text_tei_port %d, got %d", cfg.TextTEIPort, loaded.TextTEIPort)
+	}
+	if loaded.CodeTEIPort != cfg.CodeTEIPort {
+		t.Errorf("expected code_tei_port %d, got %d", cfg.CodeTEIPort, loaded.CodeTEIPort)
+	}
+	if loaded.RerankPort != cfg.RerankPort {
+		t.Errorf("expected rerank_port %d, got %d", cfg.RerankPort, loaded.RerankPort)
 	}
 }
 

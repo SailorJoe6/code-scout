@@ -32,6 +32,9 @@ func Default() *Config {
 		CodeModel:       "nomic-ai/CodeRankEmbed",
 		TextModel:       "nomic-ai/nomic-embed-text-v1.5",
 		SingleModelMode: &singleModelMode, // Default to multi-model mode (separate TEI instances for code/text)
+		TextTEIPort:     8080,
+		CodeTEIPort:     8082,
+		RerankPort:      8081,
 	}
 	return cfg
 }
@@ -187,6 +190,15 @@ func (c *Config) Validate() error {
 	}
 	if c.RerankTopK < 0 {
 		return fmt.Errorf("rerank_top_k cannot be negative")
+	}
+	if c.TextTEIPort < 0 || c.TextTEIPort > 65535 {
+		return fmt.Errorf("text_tei_port must be between 0 and 65535")
+	}
+	if c.CodeTEIPort < 0 || c.CodeTEIPort > 65535 {
+		return fmt.Errorf("code_tei_port must be between 0 and 65535")
+	}
+	if c.RerankPort < 0 || c.RerankPort > 65535 {
+		return fmt.Errorf("rerank_port must be between 0 and 65535")
 	}
 
 	return nil

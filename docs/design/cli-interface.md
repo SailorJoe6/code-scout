@@ -72,10 +72,10 @@ $ code-scout search "error handling"
 
 Found 5 unique results (from 10 total) for: error handling
 
-1. internal/embeddings/ollama.go:61-63 (score: 3456.7891)
+1. internal/embeddings/client.go:168-170 (score: 3456.7891)
    Language: go
    if err != nil {
-       return nil, fmt.Errorf("failed to make request to Ollama: %w", err)
+       return nil, fmt.Errorf("failed to marshal request: %w", err)
    }
 
 2. internal/storage/lancedb.go:42-44 (score: 3567.8912)
@@ -99,11 +99,11 @@ $ code-scout search "error handling" --json
   "results": [
     {
       "chunk_id": "uuid-abc-123",
-      "file_path": "/path/to/internal/embeddings/ollama.go",
-      "line_start": 61,
-      "line_end": 63,
+      "file_path": "/path/to/internal/embeddings/client.go",
+      "line_start": 168,
+      "line_end": 170,
       "language": "go",
-      "code": "if err != nil {\n\treturn nil, fmt.Errorf(\"failed to make request to Ollama: %w\", err)\n}",
+      "code": "if err != nil {\n\treturn nil, fmt.Errorf(\"failed to marshal request: %w\", err)\n}",
       "score": 3456.7891
     },
     ...
@@ -151,7 +151,7 @@ code-scout search "error handling" --json --limit 20
 ### Performance Tuning
 
 ```bash
-# Faster indexing (if Ollama can handle it)
+# Faster indexing (if your TEI deployment can handle it)
 code-scout index --workers 20
 
 # Slower, lower resource usage
@@ -258,18 +258,18 @@ code-scout search "TODO FIXME" --json
 
 ### Index Errors
 
-**Ollama not running**:
+**Embedding endpoint not running**:
 ```
 Error: failed to generate embedding: Post "http://localhost:11434/api/embeddings": dial tcp 127.0.0.1:11434: connect: connection refused
 
-Hint: Start Ollama with: ollama serve
+Hint: Start the TEI wrapper (./tei-wrapper) or point `--endpoint` at a running embeddings service
 ```
 
 **Model not found**:
 ```
-Error: Ollama API returned status 404: model 'code-scout-code' not found
+Error: embeddings API returned status 404: model 'nomic-ai/CodeRankEmbed' not found
 
-Hint: Create model with: ollama create code-scout-code -f ollama-models/code-scout-code.Modelfile
+Hint: Check your TEI model IDs in `.code-scout.json`
 ```
 
 **Permission errors**:
@@ -304,8 +304,9 @@ Currently none. Future possibilities:
 ```bash
 # Future configuration
 export CODE_SCOUT_DB_PATH=./custom-db
-export CODE_SCOUT_OLLAMA_URL=http://remote-ollama:11434
-export CODE_SCOUT_MODEL=custom-model
+export CODE_SCOUT_ENDPOINT=http://remote-embeddings:11434
+export CODE_SCOUT_CODE_MODEL=custom-model
+export CODE_SCOUT_TEXT_MODEL=custom-text-model
 ```
 
 ### Config File
@@ -313,8 +314,9 @@ export CODE_SCOUT_MODEL=custom-model
 Future: `.code-scout-config.json`
 ```json
 {
-  "ollama_endpoint": "http://localhost:11434",
-  "model": "code-scout-code",
+  "endpoint": "http://localhost:11434",
+  "code_model": "nomic-ai/CodeRankEmbed",
+  "text_model": "nomic-ai/nomic-embed-text-v1.5",
   "default_workers": 10,
   "default_limit": 10
 }

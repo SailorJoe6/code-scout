@@ -17,6 +17,7 @@ func TestEmbeddingsEndpoint(t *testing.T) {
 
 	// Create wrapper server pointing to mock TEI
 	server := &Server{
+		multiModel: false,
 		teiBaseURL:   mockTEI.URL,
 		currentModel: "test-model",
 		client: &http.Client{
@@ -127,6 +128,132 @@ func TestEmbeddingsEndpoint(t *testing.T) {
 	})
 }
 
+func TestEmbeddingsEndpointMultiModel(t *testing.T) {
+	makeMockTEI := func(value float64) *httptest.Server {
+		return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			switch r.URL.Path {
+			case "/health":
+				w.WriteHeader(http.StatusOK)
+				w.Write([]byte("OK"))
+			case "/embed":
+				resp := TEIResponse{{value}}
+				w.Header().Set("Content-Type", "application/json")
+				json.NewEncoder(w).Encode(resp)
+			default:
+				http.NotFound(w, r)
+			}
+		}))
+	}
+
+	codeTEI := makeMockTEI(1.0)
+	defer codeTEI.Close()
+	textTEI := makeMockTEI(2.0)
+	defer textTEI.Close()
+
+	server := &Server{
+		multiModel:     true,
+		codeModel:     "code-model",
+		textModel:     "text-model",
+		codeTEIBaseURL: codeTEI.URL,
+		textTEIBaseURL: textTEI.URL,
+		codeTEIPort:    9200,
+		textTEIPort:    9100,
+		client: &http.Client{
+			Timeout: 10 * time.Second,
+		},
+	}
+
+	testServer := httptest.NewServer(http.HandlerFunc(server.handleEmbeddings))
+	defer testServer.Close()
+
+	t.Run("CodeModelRoutesToCodeTEI", func(t *testing.T) {
+		reqBody := EmbeddingRequest{
+			Model: "code-model",
+			Input: []string{"code"},
+		}
+		bodyBytes, _ := json.Marshal(reqBody)
+		resp, err := http.Post(testServer.URL, "application/json", bytes.NewReader(bodyBytes))
+		if err != nil {
+			t.Fatalf("Request failed: %v", err)
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("Expected status 200, got %d", resp.StatusCode)
+		}
+
+		var embResp EmbeddingResponse
+		if err := json.NewDecoder(resp.Body).Decode(&embResp); err != nil {
+			t.Fatalf("Failed to parse response: %v", err)
+		}
+
+		if embResp.Model != "code-model" {
+			t.Errorf("Expected model='code-model', got %s", embResp.Model)
+		}
+		if len(embResp.Data) != 1 || len(embResp.Data[0].Embedding) != 1 || embResp.Data[0].Embedding[0] != 1.0 {
+			t.Errorf("Expected code embedding value 1.0, got %v", embResp.Data)
+		}
+	})
+
+	t.Run("TextModelRoutesToTextTEI", func(t *testing.T) {
+		reqBody := EmbeddingRequest{
+			Model: "text-model",
+			Input: []string{"text"},
+		}
+		bodyBytes, _ := json.Marshal(reqBody)
+		resp, err := http.Post(testServer.URL, "application/json", bytes.NewReader(bodyBytes))
+		if err != nil {
+			t.Fatalf("Request failed: %v", err)
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("Expected status 200, got %d", resp.StatusCode)
+		}
+
+		var embResp EmbeddingResponse
+		if err := json.NewDecoder(resp.Body).Decode(&embResp); err != nil {
+			t.Fatalf("Failed to parse response: %v", err)
+		}
+
+		if embResp.Model != "text-model" {
+			t.Errorf("Expected model='text-model', got %s", embResp.Model)
+		}
+		if len(embResp.Data) != 1 || len(embResp.Data[0].Embedding) != 1 || embResp.Data[0].Embedding[0] != 2.0 {
+			t.Errorf("Expected text embedding value 2.0, got %v", embResp.Data)
+		}
+	})
+
+	t.Run("EmptyModelDefaultsToText", func(t *testing.T) {
+		reqBody := EmbeddingRequest{
+			Model: "",
+			Input: []string{"text"},
+		}
+		bodyBytes, _ := json.Marshal(reqBody)
+		resp, err := http.Post(testServer.URL, "application/json", bytes.NewReader(bodyBytes))
+		if err != nil {
+			t.Fatalf("Request failed: %v", err)
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("Expected status 200, got %d", resp.StatusCode)
+		}
+
+		var embResp EmbeddingResponse
+		if err := json.NewDecoder(resp.Body).Decode(&embResp); err != nil {
+			t.Fatalf("Failed to parse response: %v", err)
+		}
+
+		if embResp.Model != "text-model" {
+			t.Errorf("Expected model='text-model', got %s", embResp.Model)
+		}
+		if len(embResp.Data) != 1 || len(embResp.Data[0].Embedding) != 1 || embResp.Data[0].Embedding[0] != 2.0 {
+			t.Errorf("Expected text embedding value 2.0, got %v", embResp.Data)
+		}
+	})
+}
+
 func TestHealthEndpoint(t *testing.T) {
 	// Create mock TEI server
 	mockTEI := createMockTEI(t)
@@ -134,6 +261,7 @@ func TestHealthEndpoint(t *testing.T) {
 
 	// Create wrapper server
 	server := &Server{
+		multiModel: false,
 		teiBaseURL:   mockTEI.URL,
 		currentModel: "test-model",
 		client: &http.Client{
@@ -179,6 +307,7 @@ func TestGetEmbeddings(t *testing.T) {
 
 	// Create wrapper server
 	server := &Server{
+		multiModel: false,
 		teiBaseURL:   mockTEI.URL,
 		currentModel: "test-model",
 		client: &http.Client{

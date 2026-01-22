@@ -224,23 +224,23 @@ Each has a corresponding `.scm` file in `internal/parser/queries/` that you can 
 
 ## Changing Embedding Model
 
-### Option 1: Different Ollama Model
+### Option 1: Different TEI Model
 
-**internal/embeddings/ollama.go**:
+**internal/embeddings/client.go**:
 ```go
 const (
-    DefaultOllamaEndpoint = "http://localhost:11434"
-    DefaultCodeModel      = "custom-model"  // Change this
+    DefaultEndpoint  = "http://localhost:11434"
+    DefaultCodeModel = "custom-model"  // Change this
 )
 ```
 
-Create custom model:
-```bash
-# ollama-models/custom-model.Modelfile
-FROM nomic-embed-text
-PARAMETER num_ctx 8192
-
-ollama create custom-model -f ollama-models/custom-model.Modelfile
+Update your `.code-scout.json` to keep defaults and runtime config aligned:
+```json
+{
+  "endpoint": "http://localhost:11434",
+  "code_model": "custom-model",
+  "text_model": "custom-text-model"
+}
 ```
 
 **Update vector dimensions** if model has different size:
@@ -620,7 +620,7 @@ Register in **cmd/code-scout/main.go**.
 **internal/embeddings/cache.go**:
 ```go
 type CachedClient struct {
-    client *OllamaClient
+    client *OpenAIClient
     cache  map[string][]float64
     mu     sync.RWMutex
 }

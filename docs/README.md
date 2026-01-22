@@ -24,7 +24,7 @@ This documentation is optimized for AI agents to understand the codebase structu
 - **Includes code examples** - Shows actual implementation patterns from the codebase
 - **References specific files** - Points to exact file paths and line numbers
 - **Explains relationships** - Shows how components interact and depend on each other
-- **Provides context** - Includes background on technologies used (Tree-sitter, LanceDB, Ollama)
+- **Provides context** - Includes background on technologies used (Tree-sitter, LanceDB, TEI)
 
 ## Contributing to Documentation
 

@@ -195,7 +195,7 @@ Code Scout uses a **two-model architecture** for optimal results:
 
 **Total memory footprint:** ~524MB for both models running simultaneously
 
-**Note:** The larger `nomic-ai/nomic-embed-code` model is not currently supported by TEI. It requires a powerful GPU and lots of RAM in Ollama; for TEI or lower-power machines, prefer `nomic-ai/CodeRankEmbed`.
+**Note:** The larger `nomic-ai/nomic-embed-code` model is not supported by TEI. Prefer `nomic-ai/CodeRankEmbed`.
 
 ## Running TEI with Code Scout
 
@@ -210,7 +210,7 @@ Code Scout needs different embedding models for code vs documentation. There are
 cd cmd/tei-wrapper
 go build -o tei-wrapper .
 
-# Start the wrapper (defaults to port 11435 to avoid Ollama conflicts)
+# Start the wrapper (defaults to port 11434)
 ./tei-wrapper
 ```
 
@@ -218,7 +218,7 @@ go build -o tei-wrapper .
 - Single TEI process with one model loaded at a time
 - Automatically detects model changes and restarts TEI
 - Lower memory usage (~4-8GB for single model vs 8-16GB for dual)
-- Ollama-compatible API on port 11435 (configurable)
+- OpenAI-compatible API on port 11434 (configurable)
 
 **Advantages:**
 - ✅ Lower memory usage (single model at a time)
@@ -307,11 +307,11 @@ curl http://localhost:8001/v1/embeddings \
 
 ### With TEI Wrapper (Option A)
 
-The wrapper is Ollama-compatible, so Code Scout works automatically:
+The wrapper is OpenAI-compatible, so Code Scout works automatically:
 
 ```bash
-# The wrapper runs on port 11435 by default
-# No additional configuration needed (or set --port 11434 if Ollama is stopped)!
+# The wrapper runs on port 11434 by default
+# No additional configuration needed
 
 # Index your repository
 code-scout index
@@ -400,7 +400,7 @@ Any language with HTTP support can use TEI:
 ./code-scout index --workers 6 --batch-size 6
 ```
 
-**Performance:** With TEI on M2, you can use higher concurrency than Ollama:
+**Performance:** With TEI on M2, you can use higher concurrency:
 - `--workers 6-10` for most repos
 - `--batch-size 6-8` for optimal throughput
 
@@ -468,7 +468,7 @@ export PATH="$HOME/.cargo/bin:$PATH"
 uname -m  # Should show "arm64"
 ```
 
-If on Intel Mac, TEI won't work. Use Ollama instead (see OLLAMA_SETUP.md).
+If on Intel Mac, TEI won't work; use a Linux machine with GPU support or CPU-only Docker instead.
 
 ### Build fails: OpenSSL headers not found (Linux)
 
@@ -549,52 +549,41 @@ lsof -ti:8001 | xargs kill
 | Model | Size | MRR | Memory |
 |-------|------|-----|--------|
 | CodeRankEmbed | 137M | 77.9 | 521MB |
-| nomic-embed-code | 7B | ~83-85* | 26GB |
-
-*Estimated based on SOTA claim. `nomic-embed-code` is Ollama-only and not currently supported by TEI.
-
-**Trade-off:** CodeRankEmbed sacrifices ~5-7% accuracy for 50x smaller size and ability to run two models simultaneously on M2.
 
 ### Startup Times
 
 - **TEI (first run):** 5-10 minutes (model download)
 - **TEI (subsequent runs):** 2-3 seconds
-- **Ollama (first run):** 2-5 minutes (model download)
-- **Ollama (subsequent runs):** 1-2 seconds (but slower inference)
 
 ### Indexing Performance (M2 MacBook)
 
 **Small repo (~50 files, ~5K chunks):**
 - TEI (--workers 6 --batch-size 6): ~2-3 minutes
-- Ollama (--workers 2 --batch-size 2): ~5-7 minutes
 
 **Large repo (~500 files, ~50K chunks):**
 - TEI (--workers 6 --batch-size 6): ~20-30 minutes
-- Ollama (--workers 2 --batch-size 2): ~60-90 minutes
 
-## Comparison: TEI Wrapper vs Dual TEI vs Ollama
+## Comparison: TEI Wrapper vs Dual TEI
 
-| Feature | TEI Wrapper | Dual TEI | Ollama |
-|---------|-------------|----------|--------|
-| **Platforms** | All (Mac/Linux/Win) | All | All |
-| **GPU Acceleration** | ✅ Metal/CUDA | ✅ Metal/CUDA | ✅ Metal/CUDA |
-| **Startup Time** | ~2-3s (per switch) | ~2-3s (once) | ~1-2s |
-| **Concurrency** | High (6-10 workers) | High (6-10) | Low (2 max) |
-| **Model Switching** | ✅ Automatic | ❌ Manual | ✅ Automatic |
-| **Memory (single model)** | ~4-8GB | ~8-16GB | ~4-8GB |
-| **Switching Delay** | ~2-3s | None | Minimal |
-| **Indexing Speed** | Fast | Fastest | Slow |
-| **Setup Complexity** | Easy (brew/binary) | Moderate | Easy |
-| **Best For** | Most users | Large repos, servers | Simplicity over speed |
+| Feature | TEI Wrapper | Dual TEI |
+|---------|-------------|----------|
+| **Platforms** | All (Mac/Linux/Win) | All |
+| **GPU Acceleration** | ✅ Metal/CUDA | ✅ Metal/CUDA |
+| **Startup Time** | ~2-3s (per switch) | ~2-3s (once) |
+| **Concurrency** | High (6-10 workers) | High (6-10) |
+| **Model Switching** | ✅ Automatic | ❌ Manual |
+| **Memory (single model)** | ~4-8GB | ~8-16GB |
+| **Switching Delay** | ~2-3s | None |
+| **Indexing Speed** | Fast | Fastest |
+| **Setup Complexity** | Easy (brew/binary) | Moderate |
+| **Best For** | Most users | Large repos, servers |
 
 **Recommendation:**
 - **Development/Most Users:** TEI Wrapper (Option A)
 - **Production/Large Repos:** Dual TEI (Option B)
-- **Simplicity/Small Repos:** Ollama (see [OLLAMA_SETUP.md](OLLAMA_SETUP.md))
 
 ## Next Steps
 
-- See [OLLAMA_SETUP.md](OLLAMA_SETUP.md) for simpler alternative
 - See [DEVELOPERS.md](../DEVELOPERS.md) for contributing to Code Scout
 - See [README.md](../../README.md) for general usage
 
@@ -604,7 +593,7 @@ Code Scout provides two tools to streamline your workflow:
 
 ### TEI Wrapper
 
-The TEI wrapper provides Ollama-like model hot-swapping with better performance than Ollama:
+The TEI wrapper provides model hot-swapping with better performance than running dual TEI instances:
 
 - **Single TEI process** - Lower memory usage (4-8GB vs 8-16GB for dual TEI)
 - **Automatic model switching** - Detects model changes and restarts TEI
@@ -651,5 +640,4 @@ This setup provides:
 **Related Documentation:**
 - [TEI_WRAPPER.md](TEI_WRAPPER.md) - TEI wrapper setup and usage
 - [BACKGROUND_DAEMON.md](BACKGROUND_DAEMON.md) - Background daemon for auto-indexing
-- [OLLAMA_SETUP.md](OLLAMA_SETUP.md) - Simpler alternative to TEI
 - [DEVELOPERS.md](../../DEVELOPERS.md) - Build and development setup

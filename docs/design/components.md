@@ -23,7 +23,7 @@ internal/
 │   ├── extractor.go    # Go code extraction
 │   └── chunk.go        # Chunk type definitions
 ├── embeddings/         # Vector generation
-│   └── ollama.go       # Ollama API client
+│   └── client.go       # OpenAI-compatible client
 └── storage/            # Persistence
     ├── lancedb.go      # Vector database operations
     └── metadata.go     # Incremental indexing metadata
@@ -378,42 +378,46 @@ Chunk{
 
 ### Embeddings
 
-**Purpose**: Generate vector embeddings using Ollama API
+**Purpose**: Generate vector embeddings using an OpenAI-compatible API (TEI wrapper by default)
 
 **Package**: `internal/embeddings`
 
 **Interface**:
 ```go
-type OllamaClient struct {
+type OpenAIClient struct {
     endpoint string  // Default: http://localhost:11434
-    model    string  // Default: code-scout-code
+    apiKey   string
+    model    string  // Default: nomic-ai/CodeRankEmbed
     client   *http.Client
 }
 
-func NewOllamaClient() *OllamaClient
-func (c *OllamaClient) Embed(text string) ([]float64, error)
-func (c *OllamaClient) EmbedBatch(texts []string) ([][]float64, error)
+func NewClient() *OpenAIClient
+func (c *OpenAIClient) Embed(text string) ([]float64, error)
+func (c *OpenAIClient) EmbedMany(texts []string) ([][]float64, error)
 ```
 
 **API Protocol**:
 ```go
 // Request
-POST http://localhost:11434/api/embeddings
+POST http://localhost:11434/v1/embeddings
 {
-  "model": "code-scout-code",
-  "prompt": "func Add(a, b int) int {...}"
+  "model": "nomic-ai/CodeRankEmbed",
+  "input": ["func Add(a, b int) int {...}"]
 }
 
 // Response
 {
-  "embedding": [0.123, -0.456, 0.789, ...] // 3584 floats
+  "data": [
+    {
+      "embedding": [0.123, -0.456, 0.789, ...]
+    }
+  ]
 }
 ```
 
 **Models Used**:
-- `code-scout-code`: Based on nomic-embed-code
-- Embedding dimension: 3584
-- Context window: 32K tokens
+- `nomic-ai/CodeRankEmbed`: Code embeddings
+- `nomic-ai/nomic-embed-text-v1.5`: Documentation embeddings
 
 **Implementation**: internal/embeddings/client.go:48-179
 
@@ -558,7 +562,7 @@ To modify component behavior:
 
 1. **Add new language**: Implement in `internal/parser/`
 2. **Change chunking strategy**: Modify `internal/chunker/semantic.go`
-3. **Use different embedding model**: Update `internal/embeddings/ollama.go`
+3. **Use different embedding model**: Update `internal/embeddings/client.go`
 4. **Change vector DB**: Replace `internal/storage/lancedb.go`
 
 See [extension-points.md](extension-points.md) for details.

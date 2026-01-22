@@ -11,7 +11,7 @@ import (
 )
 
 const (
-	// DefaultEndpoint is the default embedding API endpoint (Ollama local)
+	// DefaultEndpoint is the default embedding API endpoint (local TEI wrapper)
 	DefaultEndpoint = "http://localhost:11434"
 	// DefaultCodeModel is the default model for code embeddings
 	DefaultCodeModel = "nomic-ai/CodeRankEmbed"
@@ -29,8 +29,7 @@ type Client interface {
 	EmbedMany(texts []string) ([][]float64, error)
 }
 
-// OpenAIClient handles communication with OpenAI-compatible embedding APIs
-// (supports Ollama, OpenRouter, and other compatible services)
+// OpenAIClient handles communication with OpenAI-compatible embedding APIs.
 type OpenAIClient struct {
 	endpoint string
 	apiKey   string        // Optional API key for authentication
@@ -86,21 +85,6 @@ func NewClientWithConfig(endpoint, apiKey, model string) *OpenAIClient {
 		model:    model,
 		client:   &http.Client{},
 	}
-}
-
-// Deprecated: Use NewClient instead
-func NewOllamaClient() *OpenAIClient {
-	return NewClient()
-}
-
-// Deprecated: Use NewClientWithModel instead
-func NewOllamaClientWithModel(model string) *OpenAIClient {
-	return NewClientWithModel(model)
-}
-
-// Deprecated: Use NewClientWithEndpoint instead
-func NewOllamaClientWithEndpoint(endpoint, model string) *OpenAIClient {
-	return NewClientWithEndpoint(endpoint, model)
 }
 
 // truncateText truncates text to fit within the token limit

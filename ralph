@@ -12,7 +12,7 @@ PASS=0
 CALLBACK=""
 CONTAINER_NAME=""
 CONTAINER_WORKDIR="/workspaces/code_scout"
-CONTAINER_RUNTIME="podman"
+CONTAINER_RUNTIME="docker"
 
 trap 'exit 0' INT
 
@@ -84,6 +84,19 @@ container_exec() {
   "$CONTAINER_RUNTIME" exec "${CONTAINER_EXEC_FLAGS[@]}" -w "$CONTAINER_WORKDIR" "$CONTAINER_NAME" "$@"
 }
 
+set_container_exec_flags() {
+  local require_tty="$1"
+  if [[ "$require_tty" == "1" ]]; then
+    if [[ ! -t 0 ]]; then
+      echo "Error: interactive mode requires a TTY. Re-run from a real terminal or use --unattended." >&2
+      exit 2
+    fi
+    CONTAINER_EXEC_FLAGS=(-i -t)
+  else
+    CONTAINER_EXEC_FLAGS=(-i)
+  fi
+}
+
 while :; do
   PASS=$((PASS + 1))
   PROMPT="$DESIGN_PROMPT"
@@ -104,17 +117,18 @@ while :; do
       if [[ $USE_CODEX -eq 1 ]]; then
         prompt_text="$(cat "$PROMPT")"
         if [[ -n "$CONTAINER_NAME" ]]; then
-          CONTAINER_EXEC_FLAGS=(-i)
+          set_container_exec_flags 0
           container_exec codex exec --full-auto --sandbox danger-full-access "$prompt_text"
         else
           codex exec --full-auto --sandbox danger-full-access "$prompt_text"
         fi
       else
+        prompt_text="$(cat "$PROMPT")"
         if [[ -n "$CONTAINER_NAME" ]]; then
-          CONTAINER_EXEC_FLAGS=(-i)
-          cat "$PROMPT" | container_exec claude -p --dangerously-skip-permissions --debug api
+          set_container_exec_flags 0
+          container_exec claude -p --dangerously-skip-permissions "$prompt_text"
         else
-          cat "$PROMPT" | claude -p --dangerously-skip-permissions --debug api
+          claude -p --dangerously-skip-permissions "$prompt_text"
         fi
       fi
     } >> "$OUT_LOG" 2> "$ERROR_LOG"
@@ -123,17 +137,18 @@ while :; do
     if [[ $USE_CODEX -eq 1 ]]; then
       prompt_text="$(cat "$PROMPT")"
       if [[ -n "$CONTAINER_NAME" ]]; then
-        CONTAINER_EXEC_FLAGS=(-i -t)
+        set_container_exec_flags 1
         container_exec codex "$prompt_text" 2> "$ERROR_LOG"
       else
         codex "$prompt_text" 2> "$ERROR_LOG"
       fi
     else
+      prompt_text="$(cat "$PROMPT")"
       if [[ -n "$CONTAINER_NAME" ]]; then
-        CONTAINER_EXEC_FLAGS=(-i -t)
-        cat "$PROMPT" | container_exec claude 2> "$ERROR_LOG"
+        set_container_exec_flags 1
+        container_exec bash -c 'trap "exit 130" INT; exec claude "$@"' _ "$prompt_text" 2> "$ERROR_LOG"
       else
-        cat "$PROMPT" | claude 2> "$ERROR_LOG"
+        bash -c 'trap "exit 130" INT; exec claude "$@"' _ "$prompt_text" 2> "$ERROR_LOG"
       fi
     fi
   fi

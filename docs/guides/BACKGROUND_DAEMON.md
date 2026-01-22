@@ -313,7 +313,7 @@ code-scout daemon stop
 
 ## Integration with TEI Wrapper
 
-The daemon currently uses Code Scout's default embedding configuration (Ollama endpoint on port 11434).
+The daemon currently uses Code Scout's default embedding configuration (TEI wrapper endpoint on port 11434).
 
 **If using TEI wrapper:**
 1. Start TEI wrapper first
@@ -437,7 +437,7 @@ code-scout daemon logs | tail -100
 **Common causes:**
 - Out of memory (reduce workers/batch size)
 - Permission errors (can't write to `.code-scout/`)
-- Embedding server not responding (check TEI/Ollama)
+- Embedding server not responding (check TEI wrapper)
 
 **Recover:**
 ```bash
@@ -502,5 +502,5 @@ cmd/code-scout/daemon_test.go # Tests
 ## Next Steps
 
 - **For TEI wrapper setup:** See [TEI_WRAPPER.md](TEI_WRAPPER.md)
-- **For embedding configuration:** See [TEI_SETUP.md](TEI_SETUP.md) or [OLLAMA_SETUP.md](OLLAMA_SETUP.md)
+- **For embedding configuration:** See [TEI_SETUP.md](TEI_SETUP.md)
 - **For contributing:** See [DEVELOPERS.md](../../DEVELOPERS.md)

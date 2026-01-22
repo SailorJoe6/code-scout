@@ -63,7 +63,21 @@
       "Bash(pkill:*)",
       "Bash(git pull:*)",
       "Bash(text-embeddings-router:*)",
-      "Bash(chmod:*)"
+      "Bash(chmod:*)",
+      "Bash(export PATH=\"/usr/local/go/bin:$PATH\")",
+      "Bash(go version:*)",
+      "Bash(rustc:*)",
+      "Bash(protoc:*)",
+      "Bash(export PATH=\"$HOME/.local/bin:$PATH\")",
+      "Bash(export PATH=\"$HOME/.local/bin:$HOME/.cargo/bin:$PATH\")",
+      "Bash(./scripts/build-lancedb-linux-arm64.sh:*)",
+      "Bash(readelf:*)",
+      "Bash(ar t:*)",
+      "Bash(./dist/code-scout-linux_arm64/code-scout:*)",
+      "Bash(./build-and-run.sh)",
+      "Bash(lsof:*)",
+      "Bash(find:*)",
+      "Bash(git stash:*)"
     ],
     "deny": [],
     "ask": []

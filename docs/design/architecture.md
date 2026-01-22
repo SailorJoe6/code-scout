@@ -67,7 +67,7 @@ We do *not* require vector spaces to be numerically aligned.
 │   scanner)     │   │   chunker)      │   │    embeddings)  │
 │                │   │                 │   │                 │
 │ Find code      │   │ Parse with      │   │  Generate with  │
-│ files          │   │ tree-sitter     │   │  Ollama         │
+│ files          │   │ tree-sitter     │   │  TEI wrapper    │
 │                │   │ Extract chunks  │   │  Deduplicate    │
 └────────────────┘   └─────────────────┘   └─────────────────┘
                               │
@@ -115,7 +115,7 @@ We do *not* require vector spaces to be numerically aligned.
 - Legacy blank-line chunker remains for manual fallback but CLI fails fast on unsupported code
 
 **Embeddings** - Semantic representation
-- Calls Ollama API to generate vector embeddings
+- Calls OpenAI-compatible embeddings endpoint (TEI wrapper by default)
 - Content-based deduplication (hash code → skip if seen)
 - Worker pool for concurrent generation
 
@@ -150,7 +150,7 @@ This makes re-indexing fast (seconds instead of minutes).
 - Return deduplicated results
 
 Benefits:
-- Reduces Ollama API calls by ~11%
+- Reduces embedding API calls by ~11%
 - Reduces search noise by 30-80%
 - Saves tokens for AI agents
 
@@ -241,7 +241,7 @@ Metadata stored separately in `.code-scout/metadata.json`:
 
 - **Language**: Go 1.21+
 - **Parsing**: tree-sitter (via go-tree-sitter)
-- **Embeddings**: Ollama API (nomic-embed-code model)
+- **Embeddings**: OpenAI-compatible API (TEI wrapper)
 - **Vector DB**: LanceDB (with Arrow/Parquet)
 - **CLI**: Cobra framework
 

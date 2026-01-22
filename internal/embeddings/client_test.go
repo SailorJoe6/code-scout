@@ -70,36 +70,6 @@ func TestNewClientWithConfig(t *testing.T) {
 	}
 }
 
-// TestDeprecatedConstructors tests backwards compatibility
-func TestDeprecatedConstructors(t *testing.T) {
-	t.Run("NewOllamaClient", func(t *testing.T) {
-		client := NewOllamaClient()
-		if client == nil {
-			t.Fatal("NewOllamaClient returned nil")
-		}
-		if client.model != DefaultCodeModel {
-			t.Errorf("Expected model %s, got %s", DefaultCodeModel, client.model)
-		}
-	})
-
-	t.Run("NewOllamaClientWithModel", func(t *testing.T) {
-		customModel := "test-model"
-		client := NewOllamaClientWithModel(customModel)
-		if client.model != customModel {
-			t.Errorf("Expected model %s, got %s", customModel, client.model)
-		}
-	})
-
-	t.Run("NewOllamaClientWithEndpoint", func(t *testing.T) {
-		customEndpoint := "http://test:8080"
-		customModel := "test-model"
-		client := NewOllamaClientWithEndpoint(customEndpoint, customModel)
-		if client.endpoint != customEndpoint {
-			t.Errorf("Expected endpoint %s, got %s", customEndpoint, client.endpoint)
-		}
-	})
-}
-
 // createMockEmbeddingServer creates a test HTTP server that simulates the embedding API
 func createMockEmbeddingServer(t *testing.T, handler http.HandlerFunc) *httptest.Server {
 	server := httptest.NewServer(handler)

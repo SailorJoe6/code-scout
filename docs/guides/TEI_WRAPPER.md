@@ -17,29 +17,29 @@ Code Scout uses two different embedding models:
 - Performance: Fastest (no model switching)
 - Complexity: Must manage two processes, two ports
 
-**Option 2: Use Ollama**
+**Option 2: Use the TEI wrapper**
 - Memory usage: 4-8GB (one model at a time)
-- Performance: Slow (limited concurrency, model switching overhead)
+- Performance: Fast (high concurrency, short model switches)
 - Complexity: Simple (single process)
 
 ### The Solution: TEI Wrapper
 
 The TEI wrapper provides the best of both worlds:
 
-| Feature | TEI Wrapper | Dual TEI | Ollama |
-|---------|-------------|----------|--------|
-| **Memory Usage** | 4-8GB | 8-16GB | 4-8GB |
-| **Performance** | Fast | Fastest | Slow |
-| **Concurrency** | High (6-10 workers) | High (6-10) | Low (2 max) |
-| **Model Switching** | Automatic (~2-3s) | N/A | Automatic |
-| **Setup Complexity** | Moderate | Moderate | Easy |
-| **API** | OpenAI-compatible | Native TEI | Ollama API |
+| Feature | TEI Wrapper | Dual TEI |
+|---------|-------------|----------|
+| **Memory Usage** | 4-8GB | 8-16GB |
+| **Performance** | Fast | Fastest |
+| **Concurrency** | High (6-10 workers) | High (6-10) |
+| **Model Switching** | Automatic (~2-3s) | N/A |
+| **Setup Complexity** | Moderate | Moderate |
+| **API** | OpenAI-compatible | Native TEI |
 
 ## How It Works
 
 The wrapper is a thin HTTP proxy that:
 
-1. **Exposes OpenAI-compatible `/v1/embeddings` endpoint** on port 11434 (Ollama-compatible)
+1. **Exposes OpenAI-compatible `/v1/embeddings` endpoint** on port 11434
 2. **Exposes TEI-compatible `/rerank` endpoint** for cross-encoder reranking (optional)
 3. **Manages TEI processes** - one for embeddings (port 8080), optionally one for reranking (port 8081)
 4. **Detects model changes** in incoming embedding requests
@@ -94,8 +94,9 @@ Start the wrapper with default settings:
 ```
 
 **Default configuration:**
-- Listen port: `11434` (Ollama-compatible)
-- TEI internal port: `8080`
+- Listen port: `11434`
+- TEI internal port (text model): `8080`
+- TEI internal port (code model, multi-model mode): `8082`
 - Initial model: `nomic-ai/nomic-embed-text-v1.5` (from config defaults)
 - Idle preload: Disabled
 
@@ -109,10 +110,11 @@ Start the wrapper with default settings:
 
 | Flag | Type | Default | Description |
 |------|------|---------|-------------|
-| `--port` | int | `11434` | Wrapper listen port (Ollama-compatible) |
-| `--tei-port` | int | `8080` | TEI internal port |
+| `--port` | int | `11434` | Wrapper listen port |
+| `--tei-port` | int | `8080` | TEI internal port (text model in multi-model mode) |
+| `--code-tei-port` | int | `8082` | TEI port for code model (multi-model mode) |
 | `--tei-binary` | string | `text-embeddings-router` | Path to TEI binary |
-| `--model` | string | config `text_model` | Initial model to load (CLI overrides config) |
+| `--model` | string | config `text_model` | Initial model (text model in multi-model mode) |
 | `--idle-preload` | bool | `false` | Enable idle-based model preloading |
 | `--idle-timeout` | duration | `30s` | Idle time before preloading preferred model |
 | `--max-batch-tokens` | int | `8192` | Maximum batch tokens (controls memory usage, lower = less RAM) |
@@ -162,6 +164,30 @@ The wrapper starts the embedding TEI immediately and starts the reranker TEI on 
 ```
 
 See [RERANKER_SETUP.md](RERANKER_SETUP.md) for complete reranking documentation.
+
+## Multi-Model Mode
+
+Multi-model mode runs separate TEI processes for code and text embeddings at the
+same time (no model switching). Enable it by setting `single_model_mode` to
+`false` in `.code-scout.json` and configuring ports as needed:
+
+```json
+{
+  "single_model_mode": false,
+  "code_model": "nomic-ai/CodeRankEmbed",
+  "text_model": "nomic-ai/nomic-embed-text-v1.5",
+  "text_tei_port": 8080,
+  "code_tei_port": 8082,
+  "rerank_port": 8081
+}
+```
+
+The wrapper will:
+- Start TEI for `text_model` on `text_tei_port`
+- Start TEI for `code_model` on `code_tei_port`
+- Start the reranker TEI on demand (if `rerank_model` is configured)
+
+Idle preloading is ignored in multi-model mode since no model switching occurs.
 
 ## Idle Preloading
 
@@ -343,7 +369,7 @@ Health check endpoint with current embedding model and optional reranker status.
 
 ## Using with Code Scout
 
-The wrapper is Ollama-compatible, so Code Scout works without any configuration changes!
+The wrapper is OpenAI-compatible, so Code Scout works without any configuration changes!
 
 ### Default Configuration (No Config Needed)
 
@@ -396,7 +422,6 @@ Any TEI-compatible embedding model works. Recommended models:
 
 **nomic-ai/nomic-embed-code** (7B params, 26GB)
 - Higher accuracy for code (large model)
-- Requires a powerful GPU and lots of RAM in Ollama
 - Not currently supported by TEI (use CodeRankEmbed instead)
 - Optimized for: Python, Java, Ruby, PHP, JavaScript, Go
 
@@ -525,7 +550,7 @@ which text-embeddings-router
 2. Port 8080 is available: `lsof -i :8080`
 3. Model ID is valid (check [Hugging Face](https://huggingface.co/models))
 4. Sufficient RAM available
-5. `nomic-ai/nomic-embed-code` is Ollama-only and will not load in TEI
+5. `nomic-ai/nomic-embed-code` is not supported by TEI
 
 **Check TEI manually:**
 ```bash
@@ -566,7 +591,7 @@ Memory usage scales quadratically with `--max-batch-tokens`. The default (8192) 
 **Likely causes:**
 - Slow disk I/O (model cache reading)
 - CPU-only mode (no GPU acceleration)
-- Large model (nomic-embed-code 7B vs CodeRankEmbed 137M; nomic-embed-code is Ollama-only)
+- Large model (nomic-embed-code 7B vs CodeRankEmbed 137M)
 
 **Solutions:**
 1. Enable idle preload: `--idle-preload`
@@ -662,5 +687,4 @@ For technical details on the wrapper's implementation, see:
 - **For TEI installation:** See [TEI_SETUP.md](TEI_SETUP.md)
 - **For reranking setup:** See [RERANKER_SETUP.md](RERANKER_SETUP.md)
 - **For background daemon:** See [BACKGROUND_DAEMON.md](BACKGROUND_DAEMON.md)
-- **For comparison with Ollama:** See [OLLAMA_SETUP.md](OLLAMA_SETUP.md)
 - **For contributing:** See [DEVELOPERS.md](../../DEVELOPERS.md)

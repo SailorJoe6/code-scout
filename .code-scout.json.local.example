@@ -1,5 +1,5 @@
 {
-  "endpoint": "http://localhost:11434",
+  "endpoint": "http://localhost:11435",
   "code_model": "nomic-ai/CodeRankEmbed",
   "text_model": "nomic-ai/nomic-embed-text-v1.5",
   "rerank_model": "BAAI/bge-reranker-base",
